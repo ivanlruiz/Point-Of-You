@@ -29,6 +29,22 @@ Este repo es la **beta de la mecánica**: sala gris, personajes cápsula, 3 puzz
 
 "Arriba" te aleja de quien te mira; izquierda/derecha te hacen girar a su alrededor.
 
+### Online (una persona por PC)
+
+En la pantalla de inicio:
+
+- **Crear partida online** → aparece un código arriba (ej. `PKPRCB`). Pasáselo a los demás.
+- **Código + Unirse** → entrás a la partida de otro. Funciona desde cualquier casa, sin abrir puertos (Unity Relay).
+- **IP directa** → Hostear / Conectar por IP, para la misma red o pruebas. Por internet habría que abrir el puerto 7777.
+
+Cualquier control de tu PC (teclado o joystick) maneja a tu jugador. **F5** reinicia el nivel (solo el host) y **F6** sale de la partida.
+
+Cómo funciona: quien crea la partida (host) simula toda la física. Los demás mandan sus controles y la orientación de su cámara, y reciben las posiciones. Por eso el host juega sin demora y los demás ven a su personaje con un pequeño retraso, el de ida y vuelta de la conexión.
+
+Para probar sin otra PC, dentro de Unity: *Window → Multiplayer → Multiplayer Play Mode*. Activás un jugador virtual, que abre otra ventana del juego; en una creás la partida y en la otra te unís con el código.
+
+El proyecto está vinculado al proyecto **PointOfYou** de Unity Cloud (org *ivanlruiz*). Las sesiones y Relay corren ahí y tienen un nivel gratuito.
+
 **Teclas de prueba:** F1 ayuda · F2 controles relativos a la cámara / tanque · F3 marcador cuando no te ves · F4 invierte el sentido del anillo · F5 reinicia.
 
 ## El nivel
@@ -46,6 +62,10 @@ Assets/_Project/
   Scripts/Player/PlayerCharacter.cs  cápsula física: mover, saltar, agarrar (SpringJoint)
   Scripts/Input/PlayerInputSource.cs teclado partido en dos, joysticks y bots para tests
   Scripts/Puzzles/                   placas, puertas, checkpoints, meta, objetos que reaparecen
+  Scripts/Online/OnlineSession.cs    crear / unirse (código o IP), spawnea jugadores y el estado del nivel
+  Scripts/Online/NetworkPlayer.cs    input del dueño → host (incluye hacia dónde mira su cámara)
+  Scripts/Online/NetworkLevelState.cs placas, puertas, checkpoint y meta replicados
+  Scripts/Online/OnlineLauncher.cs   argumentos -pou-* para probar host + cliente con builds y bots
   Editor/PrototypeBuilder.cs         genera materiales, prefab del jugador y la escena
   Tests/PlayMode/PrototypeTests.cs   tests de la mecánica con jugadores bot
 ```
@@ -59,11 +79,23 @@ unity run . -- -executeMethod PointOfYou.EditorTools.PrototypeBuilder.Build
 
 # Tests (anillo de cámaras, movimiento, salto, agarre, placas, reaparición + capturas en TestResults/)
 unity test . --mode PlayMode
+
+# Build de Windows (queda en Builds/, que no se sube a git)
+unity build . --target StandaloneWindows64 --output-path Builds/Windows/PointOfYou.exe
 ```
+
+Prueba online automática con dos procesos (host y cliente manejados por bots):
+
+```bash
+Builds/Windows/PointOfYou.exe -batchmode -pou-host 7777 -pou-loopback -pou-bot "6:tp=-3.5;0.9;9" -pou-report host.jsonl -pou-quit 20
+Builds/Windows/PointOfYou.exe -batchmode -pou-client 127.0.0.1 7777 -pou-bot "1:up,2.5:stop,3.5:jump" -pou-report client.jsonl -pou-capture cliente.png 7 -pou-quit 18
+```
+
+Con `-pou-code-host <archivo>` / `-pou-code-join <archivo>` hace lo mismo con código de partida (Relay).
 
 ## Próximos pasos
 
 - **Probarlo en serio** con 2, 3 y 4 personas y decidir: ¿controles relativos a la cámara o tipo tanque (F2)? ¿marcador de ayuda sí o no (F3)?
-- **Online** con Netcode for GameObjects + Unity Multiplayer Services (lobby / código de sala). La lógica del anillo no cambia: solo cada cliente renderiza su propia cámara.
+- **Online:** jugarlo con gente real y medir cuánto molesta el retraso del propio personaje en los clientes. Si molesta, agregar predicción local del movimiento. Después: reconexión, migración de host, pantalla dividida + online combinados.
 - **Sensación Gang Beasts:** ragdoll activo, brazos que agarran de verdad, colgarse de cornisas.
 - Estética, narrativa y mapas.
