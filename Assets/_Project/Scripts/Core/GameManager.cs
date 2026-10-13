@@ -99,7 +99,8 @@ namespace PointOfYou
 
         void Update()
         {
-            if (!Net.IsOnline && !UiHasKeyboardFocus) HandleJoining();
+            bool connecting = OnlineSession.Instance && OnlineSession.Instance.Busy;
+            if (!Net.IsOnline && !connecting && !UiHasKeyboardFocus) HandleJoining();
             HandleGlobalKeys();
             foreach (var p in players)
                 if (p.Simulate && p.transform.position.y < killHeight) Respawn(p);
