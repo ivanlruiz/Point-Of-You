@@ -1,0 +1,18 @@
+{
+    "name": "PointOfYou.Editor",
+    "rootNamespace": "PointOfYou.EditorTools",
+    "references": [
+        "PointOfYou"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -52,7 +52,7 @@ crashlytics-build.properties
 *_BurstDebugInformation_DoNotShip/
 
 # Local test output
-/TestResults*.xml
+/TestResults/
 /*.log
 .DS_Store
 Thumbs.db
