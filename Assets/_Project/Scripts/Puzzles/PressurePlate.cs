@@ -29,8 +29,12 @@ namespace PointOfYou
             ApplyVisual();
         }
 
+        /// <summary>Online, en los clientes el estado lo decide el host.</summary>
+        public void SetReplicated(bool pressed) => IsPressed = pressed;
+
         void FixedUpdate()
         {
+            if (Net.IsReplica) return;
             Vector3 center = transform.position + transform.up * (areaSize.y * 0.5f + 0.02f);
             int n = Physics.OverlapBoxNonAlloc(center, areaSize * 0.5f, overlap, transform.rotation, ~0,
                 QueryTriggerInteraction.Ignore);

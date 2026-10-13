@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
@@ -6,8 +7,9 @@ using UnityEngine.SceneManagement;
 namespace PointOfYou
 {
     /// <summary>
-    /// Orquesta la partida local: ingreso de jugadores, anillo de miradas, pantalla dividida,
-    /// checkpoints, reaparición y HUD.
+    /// Orquesta la partida: ingreso de jugadores, anillo de miradas, pantalla dividida,
+    /// checkpoints, reaparición y HUD. Sirve igual para local (varios en una PC) y online
+    /// (un jugador por PC; ver <see cref="OnlineSession"/>).
     ///
     /// El anillo: J1 mira a J2, J2 mira a J3, ... y el último mira a J1.
     /// La pantalla de cada jugador se ve desde la cabeza de quien lo mira a él.
@@ -41,17 +43,23 @@ namespace PointOfYou
         static bool showHelp;
 
         readonly List<PlayerCharacter> players = new();
+        Checkpoint[] checkpoints;
         Checkpoint checkpoint;
         float startTime = -1f;
-        float completeTime = -1f;
+        float completeElapsed = -1f;
 
         public IReadOnlyList<PlayerCharacter> Players => players;
         public ControlMode Controls => controls;
         public bool AssistMarkers => assistMarkers;
         public bool RingReversed => ringReversed;
-        public bool LevelComplete => completeTime >= 0f;
+        public bool LevelComplete => completeElapsed >= 0f;
+        public float CompleteElapsed => completeElapsed;
         public float KillHeight => killHeight;
         public Checkpoint CurrentCheckpoint => checkpoint;
+        /// <summary>Hay un campo de texto del HUD con el foco: no tomar teclas como input de juego.</summary>
+        public bool UiHasKeyboardFocus { get; private set; }
+
+        bool ShowTitle => players.Count == 0 && !Net.IsOnline;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void ResetStatics()
@@ -72,6 +80,7 @@ namespace PointOfYou
                 return;
             }
             Instance = this;
+            checkpoints = FindObjectsByType<Checkpoint>(FindObjectsSortMode.None).OrderBy(c => c.Order).ToArray();
             checkpoint = startCheckpoint;
             if (!GetComponent<AudioListener>()) gameObject.AddComponent<AudioListener>();
         }
@@ -90,10 +99,10 @@ namespace PointOfYou
 
         void Update()
         {
-            HandleJoining();
+            if (!Net.IsOnline && !UiHasKeyboardFocus) HandleJoining();
             HandleGlobalKeys();
             foreach (var p in players)
-                if (p.transform.position.y < killHeight) Respawn(p);
+                if (p.Simulate && p.transform.position.y < killHeight) Respawn(p);
         }
 
         // ---------------------------------------------------------------- jugadores
@@ -118,28 +127,55 @@ namespace PointOfYou
         void TryJoin(PlayerInputSource candidate)
         {
             foreach (var p in players)
-                if (p.InputSource.SameDevice(candidate)) return;
+                if (p.InputSource != null && p.InputSource.SameDevice(candidate)) return;
             Join(candidate);
         }
 
+        /// <summary>Suma un jugador local (modo pantalla dividida).</summary>
         public PlayerCharacter Join(PlayerInputSource source, bool remember = true)
         {
-            if (source == null || players.Count >= MaxPlayers) return null;
-
-            int index = players.Count;
-            if (startTime < 0f) startTime = Time.time;
+            if (source == null || Net.IsOnline) return null;
+            int index = NextFreeIndex();
+            if (index < 0) return null;
 
             GetSpawn(index, out var position, out var rotation);
             var player = Instantiate(playerPrefab, position, rotation);
-            player.name = $"J{index + 1}";
-            player.Initialize(index, playerColors[index % playerColors.Length], source, CreateView(index));
-            players.Add(player);
+            Register(player, index, source, localView: true);
 
             if (remember && !rememberedInputs.Contains(source)) rememberedInputs.Add(source);
+            return player;
+        }
 
+        /// <summary>
+        /// Registra un personaje ya creado (local u online). Solo los que se juegan en esta PC
+        /// tienen pantalla propia (<paramref name="localView"/>).
+        /// </summary>
+        public void Register(PlayerCharacter player, int index, PlayerInputSource source, bool localView)
+        {
+            if (startTime < 0f) startTime = Time.time;
+            player.name = $"J{index + 1}";
+            player.Initialize(index, playerColors[index % playerColors.Length], source, localView ? CreateView(index) : null);
+            players.Add(player);
+            players.Sort((a, b) => a.Index.CompareTo(b.Index));
             RefreshRing();
             RefreshLayout();
-            return player;
+        }
+
+        public void Unregister(PlayerCharacter player)
+        {
+            if (!players.Remove(player)) return;
+            foreach (var p in players)
+                if (p.GrabbedBody && p.GrabbedBody == player.Body) p.Release();
+            if (player.View) Destroy(player.View.gameObject);
+            RefreshRing();
+            RefreshLayout();
+        }
+
+        public int NextFreeIndex()
+        {
+            for (int i = 0; i < MaxPlayers; i++)
+                if (!players.Exists(p => p.Index == i)) return i;
+            return -1;
         }
 
         RingCamera CreateView(int index)
@@ -157,20 +193,30 @@ namespace PointOfYou
 
         static int Mod(int a, int n) => (a % n + n) % n;
 
+        /// <summary>Quién mira a este jugador (desde qué cabeza se ve su pantalla).</summary>
+        public PlayerCharacter ObserverOf(PlayerCharacter player)
+        {
+            int n = players.Count;
+            int i = players.IndexOf(player);
+            if (n < 2 || i < 0) return null;
+            return players[Mod(i - (ringReversed ? -1 : 1), n)];
+        }
+
         void RefreshRing()
         {
             int n = players.Count;
             int step = ringReversed ? -1 : 1;
             for (int i = 0; i < n; i++)
             {
-                players[i].View.SetObserver(n > 1 ? players[Mod(i - step, n)] : null);
+                if (players[i].View) players[i].View.SetObserver(n > 1 ? players[Mod(i - step, n)] : null);
                 players[i].LookTarget = n > 1 ? players[Mod(i + step, n)] : null;
             }
         }
 
         void RefreshLayout()
         {
-            int n = players.Count;
+            var views = players.Where(p => p.View).Select(p => p.View).ToList();
+            int n = views.Count;
             if (overviewCamera)
             {
                 overviewCamera.enabled = n == 0 || n == 3;
@@ -178,7 +224,7 @@ namespace PointOfYou
             }
 
             for (int i = 0; i < n; i++)
-                players[i].View.Cam.rect = ViewportFor(i, n);
+                views[i].Cam.rect = ViewportFor(i, n);
         }
 
         static Rect ViewportFor(int i, int n)
@@ -201,7 +247,7 @@ namespace PointOfYou
             player.Respawn(position, rotation);
         }
 
-        void GetSpawn(int index, out Vector3 position, out Quaternion rotation)
+        public void GetSpawn(int index, out Vector3 position, out Quaternion rotation)
         {
             if (checkpoint)
             {
@@ -219,13 +265,31 @@ namespace PointOfYou
 
         public void CompleteLevel()
         {
-            if (!LevelComplete) completeTime = Time.time;
+            if (!LevelComplete) completeElapsed = Time.time - Mathf.Max(startTime, 0f);
+        }
+
+        /// <summary>Vuelve todo al inicio sin recargar la escena (lo usa el host online).</summary>
+        public void ResetLevel()
+        {
+            checkpoint = startCheckpoint;
+            completeElapsed = -1f;
+            startTime = Time.time;
+            foreach (var p in players)
+                if (p.Simulate) Respawn(p);
+        }
+
+        /// <summary>En los clientes online: checkpoint y meta según el host.</summary>
+        public void ApplyReplicatedLevel(int checkpointOrder, float completedAfter)
+        {
+            if (!checkpoint || checkpoint.Order != checkpointOrder)
+                checkpoint = checkpoints.FirstOrDefault(c => c.Order == checkpointOrder) ?? checkpoint;
+            completeElapsed = completedAfter;
         }
 
         void HandleGlobalKeys()
         {
             var kb = Keyboard.current;
-            if (kb == null) return;
+            if (kb == null || UiHasKeyboardFocus) return;
             if (kb.f1Key.wasPressedThisFrame) showHelp = !showHelp;
             if (kb.f2Key.wasPressedThisFrame)
                 controls = controls == ControlMode.CameraRelative ? ControlMode.Tank : ControlMode.CameraRelative;
@@ -236,10 +300,16 @@ namespace PointOfYou
                 RefreshRing();
             }
             if (kb.f5Key.wasPressedThisFrame) Restart();
+            if (kb.f6Key.wasPressedThisFrame && Net.IsOnline && OnlineSession.Instance) OnlineSession.Instance.Leave();
         }
 
         void Restart()
         {
+            if (Net.IsOnline)
+            {
+                if (OnlineSession.Instance) OnlineSession.Instance.RequestRestart();
+                return;
+            }
             var scene = SceneManager.GetActiveScene();
             if (scene.buildIndex >= 0) SceneManager.LoadScene(scene.buildIndex);
             else Debug.LogWarning("[PointOfYou] La escena no está en Build Settings: no se puede reiniciar con F5.");
@@ -247,26 +317,30 @@ namespace PointOfYou
 
         // ---------------------------------------------------------------- HUD (IMGUI: suficiente para el prototipo)
 
-        GUIStyle labelStyle, smallStyle, titleStyle, centerStyle;
+        GUIStyle labelStyle, smallStyle, titleStyle, centerStyle, smallCenterStyle, buttonStyle, fieldStyle;
         Texture2D panelTexture, markerTexture;
+        string codeInput = "";
+        string addressInput = "127.0.0.1";
 
         void OnGUI()
         {
-            if (Event.current.type != EventType.Repaint) return;
             EnsureStyles();
-
             float scale = Screen.height / 1080f;
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
             float width = Screen.width / scale, height = 1080f;
 
-            if (players.Count == 0)
+            if (ShowTitle)
             {
+                // El menú necesita todos los eventos (clicks y teclas), no solo el repintado.
                 DrawTitle(width, height);
                 return;
             }
+            UiHasKeyboardFocus = false;
+            if (Event.current.type != EventType.Repaint) return;
 
             foreach (var p in players)
             {
+                if (!p.View) continue;
                 Rect px = p.View.Cam.pixelRect;
                 var r = new Rect(px.x / scale, (Screen.height - px.yMax) / scale, px.width / scale, px.height / scale);
                 DrawViewportFrame(r);
@@ -274,14 +348,15 @@ namespace PointOfYou
                 if (assistMarkers) DrawMarker(p, scale);
             }
 
-            if (players.Count == 3 && overviewCamera)
+            if (overviewCamera && overviewCamera.enabled)
             {
                 Rect px = overviewCamera.pixelRect;
                 var r = new Rect(px.x / scale, (Screen.height - px.yMax) / scale, px.width / scale, px.height / scale);
                 DrawViewportFrame(r);
-                DrawPanelText(new Vector2(r.x + 12, r.y + 12), "Vista general", smallStyle);
+                DrawPanelText(new Vector2(r.x + 12, r.y + 12), Net.IsOnline ? "Esperando tu jugador…" : "Vista general", smallStyle);
             }
 
+            if (Net.IsOnline) DrawOnlineBar(width);
             DrawBottomBar(width, height);
 
             if (LevelComplete) DrawComplete(width, height);
@@ -296,6 +371,9 @@ namespace PointOfYou
             smallStyle = new GUIStyle(labelStyle) { fontSize = 18 };
             titleStyle = new GUIStyle(labelStyle) { fontSize = 72, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
             centerStyle = new GUIStyle(labelStyle) { fontSize = 22, alignment = TextAnchor.UpperCenter, wordWrap = true };
+            smallCenterStyle = new GUIStyle(centerStyle) { fontSize = 18 };
+            buttonStyle = new GUIStyle(GUI.skin.button) { fontSize = 22 };
+            fieldStyle = new GUIStyle(GUI.skin.textField) { fontSize = 24, alignment = TextAnchor.MiddleCenter };
 
             panelTexture = new Texture2D(1, 1) { hideFlags = HideFlags.HideAndDontSave };
             panelTexture.SetPixel(0, 0, new Color(0f, 0f, 0f, 0.6f));
@@ -323,10 +401,10 @@ namespace PointOfYou
 
         void DrawViewportLabel(PlayerCharacter p, Rect r)
         {
-            var observer = p.View.Observer;
+            var observer = ObserverOf(p);
             string seenBy = observer ? $"visto por {Tag(observer)}" : "cámara de prueba (jugás solo)";
             DrawPanelText(new Vector2(r.x + 12f, r.y + 12f), $"{Tag(p)}  ·  {seenBy}", labelStyle);
-            DrawPanelText(new Vector2(r.x + 12f, r.y + 52f), p.InputSource.Label, smallStyle);
+            DrawPanelText(new Vector2(r.x + 12f, r.y + 52f), p.InputSource?.Label ?? "Esta PC", smallStyle);
         }
 
         // Ayuda opcional (F3): si no te ves en tu pantalla, un marcador indica dónde estás.
@@ -340,7 +418,7 @@ namespace PointOfYou
             bool onScreen = !behind && px.Contains(new Vector2(sp.x, sp.y));
             bool occluded = onScreen &&
                 Physics.Linecast(cam.transform.position, target, out var hit, ~0, QueryTriggerInteraction.Ignore) &&
-                hit.rigidbody != p.Body;
+                hit.collider.transform.root != p.transform.root;
             if (onScreen && !occluded) return;
 
             if (behind)
@@ -360,11 +438,24 @@ namespace PointOfYou
             GUI.Label(new Rect(gui.x + 18f, gui.y - 14f, 200f, 30f), occluded ? "detrás de algo" : "fuera de cuadro", smallStyle);
         }
 
+        void DrawOnlineBar(float width)
+        {
+            var online = OnlineSession.Instance;
+            string where = online && online.JoinCode != null ? $"código <b>{online.JoinCode}</b>" : "IP directa";
+            string role = Net.IsHost ? "sos el host" : "conectado";
+            string text = $"ONLINE · {where} · {role} · {players.Count}/{MaxPlayers} jugadores · F6 salir";
+            if (online && !string.IsNullOrEmpty(online.Status)) text += $"\n{online.Status}";
+            Vector2 size = labelStyle.CalcSize(new GUIContent(text));
+            DrawPanelText(new Vector2((width - size.x) * 0.5f - 10f, 12f), text, labelStyle);
+        }
+
         void DrawBottomBar(float width, float height)
         {
             string objective = checkpoint ? checkpoint.Objective : "";
             if (players.Count == 1)
-                objective = "Estás solo: la cámara te sigue de atrás. Sumá otro jugador para probar la mecánica.";
+                objective = Net.IsOnline
+                    ? "Esperando a que se sume alguien: pasales el código."
+                    : "Estás solo: la cámara te sigue de atrás. Sumá otro jugador para probar la mecánica.";
             if (!string.IsNullOrEmpty(objective))
             {
                 float w = Mathf.Min(1100f, width - 40f);
@@ -374,7 +465,7 @@ namespace PointOfYou
                 GUI.Label(new Rect(rect.x + 15f, rect.y + 7f, w - 30f, h), objective, centerStyle);
             }
 
-            string join = players.Count < MaxPlayers ? "Sumarse: ESPACIO · ENTER · A (joystick)    " : "";
+            string join = !Net.IsOnline && players.Count < MaxPlayers ? "Sumarse: ESPACIO · ENTER · A (joystick)    " : "";
             string mode = controls == ControlMode.CameraRelative ? "relativos a la cámara" : "tanque";
             string status = $"{join}F1 ayuda · F2 controles: {mode} · F3 marcador: {(assistMarkers ? "sí" : "no")} · F4 anillo · F5 reiniciar";
             Vector2 size = smallStyle.CalcSize(new GUIContent(status));
@@ -383,24 +474,55 @@ namespace PointOfYou
 
         void DrawTitle(float width, float height)
         {
-            GUI.DrawTexture(new Rect(0f, height * 0.5f - 230f, width, 400f), panelTexture);
-            GUI.Label(new Rect(0f, height * 0.5f - 210f, width, 100f), "POINT OF YOU", titleStyle);
+            var online = OnlineSession.Instance;
+            bool busy = online && online.Busy;
+
+            GUI.DrawTexture(new Rect(0f, 120f, width, 840f), panelTexture);
+            GUI.Label(new Rect(0f, 140f, width, 100f), "POINT OF YOU", titleStyle);
             string body =
                 "Prototipo · Cada pantalla te muestra a VOS, desde los ojos de otro jugador.\n" +
                 "Con 2 se miran entre sí. Con 3 o más es una ronda: J1 mira a J2, J2 mira a J3... y el último mira a J1.\n\n" +
-                "Para sumarte apretá:  ESPACIO (teclado izquierdo, WASD)  ·  ENTER (teclado derecho, flechas)  ·  A / Start (joystick)\n" +
-                "Hasta 4 jugadores en esta PC.  F1 muestra todos los controles.";
-            GUI.Label(new Rect(60f, height * 0.5f - 90f, width - 120f, 260f), body, centerStyle);
-            if (showHelp) DrawHelp(width, height);
+                "<b>EN ESTA PC</b> (hasta 4, pantalla dividida): apretá  ESPACIO (WASD)  ·  ENTER (flechas)  ·  A / Start (joystick)";
+            GUI.Label(new Rect(60f, 250f, width - 120f, 160f), body, centerStyle);
+
+            float cx = width * 0.5f;
+            GUI.Label(new Rect(0f, 430f, width, 40f), "<b>ONLINE</b> (una persona por PC, desde cualquier casa)", centerStyle);
+
+            GUI.enabled = !busy;
+            if (GUI.Button(new Rect(cx - 300f, 480f, 600f, 56f), "Crear partida online", buttonStyle) && online)
+                online.HostWithCode();
+
+            GUI.Label(new Rect(cx - 300f, 560f, 120f, 50f), "Código:", labelStyle);
+            GUI.SetNextControlName("code");
+            codeInput = GUI.TextField(new Rect(cx - 180f, 556f, 260f, 52f), codeInput, 12, fieldStyle).ToUpperInvariant();
+            if (GUI.Button(new Rect(cx + 100f, 556f, 200f, 52f), "Unirse", buttonStyle) && online)
+                online.JoinWithCode(codeInput);
+
+            GUI.Label(new Rect(0f, 650f, width, 34f), "IP directa (misma red o pruebas en esta PC; por internet hay que abrir el puerto 7777):", smallCenterStyle);
+            GUI.SetNextControlName("address");
+            addressInput = GUI.TextField(new Rect(cx - 300f, 694f, 260f, 46f), addressInput, 64, fieldStyle);
+            if (GUI.Button(new Rect(cx - 30f, 694f, 160f, 46f), "Hostear", buttonStyle) && online)
+                online.HostDirect();
+            if (GUI.Button(new Rect(cx + 140f, 694f, 160f, 46f), "Conectar", buttonStyle) && online)
+                online.JoinDirect(addressInput);
+            GUI.enabled = true;
+
+            if (online && !string.IsNullOrEmpty(online.Status))
+                GUI.Label(new Rect(60f, 770f, width - 120f, 120f), online.Status, centerStyle);
+
+            GUI.Label(new Rect(0f, 900f, width, 40f), "F1 muestra todos los controles.", centerStyle);
+
+            UiHasKeyboardFocus = !string.IsNullOrEmpty(GUI.GetNameOfFocusedControl());
+            if (showHelp && Event.current.type == EventType.Repaint) DrawHelp(width, height);
         }
 
         void DrawComplete(float width, float height)
         {
-            float t = completeTime - Mathf.Max(startTime, 0f);
-            string time = $"{(int)(t / 60f):00}:{(int)(t % 60f):00}";
+            string time = $"{(int)(completeElapsed / 60f):00}:{(int)(completeElapsed % 60f):00}";
+            string again = Net.IsOnline && !Net.IsHost ? "El host puede reiniciar con F5" : "F5 para jugar de nuevo";
             GUI.DrawTexture(new Rect(0f, height * 0.5f - 110f, width, 200f), panelTexture);
             GUI.Label(new Rect(0f, height * 0.5f - 100f, width, 100f), "¡NIVEL COMPLETO!", titleStyle);
-            GUI.Label(new Rect(0f, height * 0.5f + 10f, width, 60f), $"Tiempo: {time}   ·   F5 para jugar de nuevo", centerStyle);
+            GUI.Label(new Rect(0f, height * 0.5f + 10f, width, 60f), $"Tiempo: {time}   ·   {again}", centerStyle);
         }
 
         void DrawHelp(float width, float height)
@@ -409,13 +531,14 @@ namespace PointOfYou
                 "<b>CONTROLES</b>\n\n" +
                 "<b>Teclado izquierdo</b>   WASD mover · ESPACIO saltar · SHIFT IZQ / E agarrar (mantener) · R reaparecer\n" +
                 "<b>Teclado derecho</b>   FLECHAS mover · ENTER / NUM 0 saltar · SHIFT DER / CTRL DER agarrar · BORRAR reaparecer\n" +
-                "<b>Joystick</b>   stick / cruceta mover · A saltar · gatillos / RB / X agarrar · SELECT reaparecer\n\n" +
+                "<b>Joystick</b>   stick / cruceta mover · A saltar · gatillos / RB / X agarrar · SELECT reaparecer\n" +
+                "Online cualquiera de esos controles maneja a tu jugador.\n\n" +
                 "<b>Cómo funciona</b>\n" +
                 "Tu pantalla está en la cabeza de otro jugador y siempre te apunta a vos.\n" +
                 "\"Arriba\" te aleja de quien te mira; izquierda y derecha te hacen girar a su alrededor.\n" +
                 "Si te tapa una pared, te perdés de vista: pedile al otro que se mueva.\n\n" +
                 "<b>Teclas de prueba</b>\n" +
-                "F2 alterna controles relativos a la cámara / tanque · F3 marcador si no te ves · F4 invierte el sentido del anillo · F5 reinicia";
+                "F2 controles relativos a la cámara / tanque · F3 marcador si no te ves · F4 invierte el sentido del anillo · F5 reinicia · F6 sale de la partida online";
             float w = Mathf.Min(1300f, width - 60f);
             float h = centerStyle.CalcHeight(new GUIContent(help), w - 40f) + 30f;
             var rect = new Rect((width - w) * 0.5f, (height - h) * 0.5f, w, h);

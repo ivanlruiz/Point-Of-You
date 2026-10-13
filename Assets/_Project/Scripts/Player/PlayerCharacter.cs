@@ -52,8 +52,16 @@ namespace PointOfYou
         float lastGroundedTime = float.NegativeInfinity;
         float jumpBufferedUntil = float.NegativeInfinity;
         float jumpLockedUntil;
+        bool remoteGrabbing;
+        Vector3 remoteGrabPoint;
         readonly RaycastHit[] groundHits = new RaycastHit[8];
         readonly Collider[] grabOverlap = new Collider[16];
+
+        /// <summary>
+        /// Si este personaje corre su física acá. Offline siempre; online solo en el host
+        /// (en los clientes es una copia que mueve la red).
+        /// </summary>
+        public bool Simulate { get; set; } = true;
 
         public int Index { get; private set; }
         public Color Color { get; private set; } = Color.white;
@@ -70,6 +78,9 @@ namespace PointOfYou
         public bool IsGrounded { get; private set; }
         public bool IsGrabbing => grabJoint != null;
         public Rigidbody GrabbedBody => grabbedBody;
+        public Vector3 GrabPoint => IsGrabbing && grabbedBody
+            ? grabbedBody.transform.TransformPoint(grabJoint.connectedAnchor)
+            : hand.position;
         public string DisplayName => $"J{Index + 1}";
 
         void Awake()
@@ -92,12 +103,19 @@ namespace PointOfYou
             foreach (var r in lightTintRenderers)
                 if (r) r.material.SetColor(BaseColorId, light);
 
-            view.Init(this);
+            if (view) view.Init(this);
+        }
+
+        /// <summary>Estado de agarre que llega por red (para dibujar la mano en los clientes).</summary>
+        public void SetRemoteGrab(bool grabbing, Vector3 point)
+        {
+            remoteGrabbing = grabbing;
+            remoteGrabPoint = point;
         }
 
         void Update()
         {
-            if (InputSource == null) return;
+            if (InputSource == null || !Simulate) return;
 
             if (InputSource.JumpPressed)
                 jumpBufferedUntil = Time.time + jumpBufferTime;
@@ -112,6 +130,7 @@ namespace PointOfYou
 
         void FixedUpdate()
         {
+            if (!Simulate) return;
             float dt = Time.fixedDeltaTime;
             IsGrounded = Time.time >= jumpLockedUntil && ProbeGround();
             if (IsGrounded) lastGroundedTime = Time.time;
@@ -169,15 +188,17 @@ namespace PointOfYou
 
             if (handRenderer)
             {
-                handRenderer.enabled = IsGrabbing;
-                if (IsGrabbing && grabbedBody)
-                    handRenderer.transform.position = grabbedBody.transform.TransformPoint(grabJoint.connectedAnchor);
+                bool showHand = Simulate ? IsGrabbing : remoteGrabbing;
+                handRenderer.enabled = showHand;
+                if (showHand)
+                    handRenderer.transform.position = Simulate ? GrabPoint : remoteGrabPoint;
                 else
                     handRenderer.transform.localPosition = Vector3.zero;
             }
         }
 
-        bool IsTankMode => GameManager.Instance && GameManager.Instance.Controls == GameManager.ControlMode.Tank;
+        bool IsTankMode => InputSource?.TankMode ??
+            (GameManager.Instance && GameManager.Instance.Controls == GameManager.ControlMode.Tank);
 
         Vector3 ComputeWishDirection(out float tankYaw)
         {
@@ -192,7 +213,15 @@ namespace PointOfYou
             }
 
             Vector3 fwd = Vector3.forward, right = Vector3.right;
-            if (View) View.GetPlanarBasis(out fwd, out right);
+            if (InputSource.TryGetMoveForward(out var sentForward))
+            {
+                fwd = sentForward;
+                right = Vector3.Cross(Vector3.up, fwd);
+            }
+            else if (View)
+            {
+                View.GetPlanarBasis(out fwd, out right);
+            }
             return Vector3.ClampMagnitude(fwd * m.y + right * m.x, 1f);
         }
 

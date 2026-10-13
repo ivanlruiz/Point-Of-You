@@ -26,7 +26,7 @@ namespace PointOfYou
             if (flag && gm.LevelComplete)
                 flag.localScale = Vector3.Scale(flagRestScale, new Vector3(1f, 1f + 0.15f * Mathf.Sin(Time.time * 8f), 1f));
 
-            if (gm.LevelComplete || gm.Players.Count == 0) return;
+            if (gm.LevelComplete || gm.Players.Count == 0 || Net.IsReplica) return;
             var bounds = area.bounds;
             foreach (var p in gm.Players)
                 if (!bounds.Contains(p.transform.position)) return;

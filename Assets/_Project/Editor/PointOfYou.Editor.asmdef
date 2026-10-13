@@ -2,7 +2,8 @@
     "name": "PointOfYou.Editor",
     "rootNamespace": "PointOfYou.EditorTools",
     "references": [
-        "PointOfYou"
+        "PointOfYou",
+        "Unity.Netcode.Runtime"
     ],
     "includePlatforms": [
         "Editor"

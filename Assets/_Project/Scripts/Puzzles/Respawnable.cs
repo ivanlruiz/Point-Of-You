@@ -19,6 +19,7 @@ namespace PointOfYou
 
         void FixedUpdate()
         {
+            if (Net.IsReplica) return;
             float killHeight = GameManager.Instance ? GameManager.Instance.KillHeight : -6f;
             if (transform.position.y < killHeight) ResetToStart();
         }

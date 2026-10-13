@@ -1,5 +1,8 @@
 using System;
 using System.IO;
+using System.Reflection;
+using Unity.Netcode;
+using Unity.Netcode.Components;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -9,7 +12,7 @@ using Object = UnityEngine.Object;
 namespace PointOfYou.EditorTools
 {
     /// <summary>
-    /// Arma la sala gris del prototipo por código: materiales, prefab del jugador y la escena.
+    /// Arma la sala gris del prototipo por código: materiales, prefabs (local y de red) y la escena.
     /// Correrlo de nuevo la regenera desde cero (los cambios hechos a mano en la escena se pierden).
     ///
     /// Desde el Editor: menú Point of You → Reconstruir escena prototipo.
@@ -23,6 +26,9 @@ namespace PointOfYou.EditorTools
         const string SceneDir = Root + "/Scenes";
         public const string ScenePath = SceneDir + "/Prototype.unity";
         const string PlayerPrefabPath = PrefabDir + "/Player.prefab";
+        const string NetworkPlayerPrefabPath = PrefabDir + "/NetworkPlayer.prefab";
+        const string NetworkBoxPrefabPath = PrefabDir + "/NetworkBox.prefab";
+        const string LevelStatePrefabPath = PrefabDir + "/NetworkLevelState.prefab";
 
         static readonly Color DoorOneColor = new(0.95f, 0.62f, 0.15f);
         static readonly Color DoorTwoColor = new(0.15f, 0.72f, 0.88f);
@@ -41,18 +47,21 @@ namespace PointOfYou.EditorTools
             EnsureFolder(SceneDir);
 
             var m = new Materials();
-            BuildPlayerPrefab(m);
+            BuildPlayerPrefab(m, PlayerPrefabPath, networked: false);
+            BuildPlayerPrefab(m, NetworkPlayerPrefabPath, networked: true);
+            BuildNetworkBoxPrefab(m);
+            BuildLevelStatePrefab();
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            // NewScene descarga assets sin uso: la referencia al prefab recién guardado queda inválida, hay que recargarla.
-            var playerPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(PlayerPrefabPath).GetComponent<PlayerCharacter>();
+            // NewScene descarga assets sin uso: las referencias a los prefabs recién guardados quedan inválidas, hay que recargarlas.
+            var playerPrefab = Load<PlayerCharacter>(PlayerPrefabPath);
             SetupLighting();
 
             var level = new GameObject("Nivel").transform;
             var start = BuildZoneStart(level, m, out var plateA);
             var plateB = BuildDoorOne(level, m, plateA);
             BuildZoneWindows(level, m, plateB);
-            BuildZoneLedge(level, m);
+            BuildZoneLedge(level, m, Load<NetworkObject>(NetworkBoxPrefabPath));
 
             var overview = new GameObject("Cámara general").AddComponent<Camera>();
             overview.transform.SetPositionAndRotation(new Vector3(-12f, 30f, 25f), Quaternion.identity);
@@ -66,6 +75,9 @@ namespace PointOfYou.EditorTools
             Set(gm, "playerPrefab", playerPrefab);
             Set(gm, "startCheckpoint", start);
             Set(gm, "overviewCamera", overview);
+            var online = gm.gameObject.AddComponent<OnlineSession>();
+            Set(online, "playerPrefab", Load<NetworkObject>(NetworkPlayerPrefabPath));
+            Set(online, "levelStatePrefab", Load<NetworkObject>(LevelStatePrefabPath));
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
@@ -159,7 +171,7 @@ namespace PointOfYou.EditorTools
 
         // Zona 3: cornisa alta. Hace falta la caja para subir. Desde abajo no se ve la cornisa,
         // así que quien sube depende de que su observador también busque altura.
-        static void BuildZoneLedge(Transform level, Materials m)
+        static void BuildZoneLedge(Transform level, Materials m, NetworkObject networkBoxPrefab)
         {
             var zone = Group("Z3 Cornisa", level);
             Block("Piso", zone, new Vector3(-6f, -0.5f, 36f), new Vector3(6f, 0f, 52f), m.Floor);
@@ -168,15 +180,10 @@ namespace PointOfYou.EditorTools
             Block("Pared fondo", zone, new Vector3(-6.5f, 0f, 52f), new Vector3(6.5f, 5f, 52.5f), m.Wall);
             Block("Cornisa", zone, new Vector3(-6f, 0f, 46f), new Vector3(6f, 2.1f, 52f), m.Ledge);
 
-            var box = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            box.name = "Caja";
+            var box = MakeBox(m);
             box.transform.SetParent(zone, false);
             box.transform.position = new Vector3(3f, 0.5f, 40f);
-            box.GetComponent<Renderer>().sharedMaterial = m.Box;
-            var boxBody = box.AddComponent<Rigidbody>();
-            boxBody.mass = 2f;
-            boxBody.interpolation = RigidbodyInterpolation.Interpolate;
-            box.AddComponent<Respawnable>();
+            Set(box.AddComponent<NetworkReplacement>(), "prefab", networkBoxPrefab);
 
             var goal = new GameObject("Meta");
             goal.transform.SetParent(zone, false);
@@ -196,9 +203,10 @@ namespace PointOfYou.EditorTools
 
         // ---------------------------------------------------------------- jugador
 
-        static void BuildPlayerPrefab(Materials m)
+        static void BuildPlayerPrefab(Materials m, string path, bool networked)
         {
-            var root = new GameObject("Player");
+            var root = new GameObject(Path.GetFileNameWithoutExtension(path));
+            if (networked) root.AddComponent<NetworkObject>();
             var rb = root.AddComponent<Rigidbody>();
             rb.mass = 1f;
             rb.interpolation = RigidbodyInterpolation.Interpolate;
@@ -241,9 +249,74 @@ namespace PointOfYou.EditorTools
             Set(player, "headRenderers", new Object[] { headMesh.GetComponent<Renderer>(), eyeL.GetComponent<Renderer>(), eyeR.GetComponent<Renderer>() });
             Set(player, "handRenderer", handMesh.GetComponent<Renderer>());
 
-            PrefabUtility.SaveAsPrefabAsset(root, PlayerPrefabPath);
-            Object.DestroyImmediate(root);
+            if (networked)
+            {
+                // El host simula; los clientes reciben posición y giro (solo en Y: el cuerpo nunca se inclina).
+                var nt = root.AddComponent<NetworkTransform>();
+                nt.SyncRotAngleX = false;
+                nt.SyncRotAngleZ = false;
+                nt.SyncScaleX = nt.SyncScaleY = nt.SyncScaleZ = false;
+                root.AddComponent<NetworkRigidbody>();
+                root.AddComponent<NetworkPlayer>();
+            }
+
+            SavePrefab(root, path, networked);
         }
+
+        static GameObject MakeBox(Materials m)
+        {
+            var box = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            box.name = "Caja";
+            box.GetComponent<Renderer>().sharedMaterial = m.Box;
+            var body = box.AddComponent<Rigidbody>();
+            body.mass = 2f;
+            body.interpolation = RigidbodyInterpolation.Interpolate;
+            box.AddComponent<Respawnable>();
+            return box;
+        }
+
+        static void BuildNetworkBoxPrefab(Materials m)
+        {
+            var box = MakeBox(m);
+            box.name = "NetworkBox";
+            box.AddComponent<NetworkObject>();
+            var nt = box.AddComponent<NetworkTransform>();
+            nt.SyncScaleX = nt.SyncScaleY = nt.SyncScaleZ = false;
+            box.AddComponent<NetworkRigidbody>();
+            SavePrefab(box, NetworkBoxPrefabPath, networked: true);
+        }
+
+        static void BuildLevelStatePrefab()
+        {
+            var go = new GameObject("NetworkLevelState");
+            go.AddComponent<NetworkObject>();
+            go.AddComponent<NetworkLevelState>();
+            SavePrefab(go, LevelStatePrefabPath, networked: true);
+        }
+
+        static void SavePrefab(GameObject root, string path, bool networked)
+        {
+            PrefabUtility.SaveAsPrefabAsset(root, path);
+            Object.DestroyImmediate(root);
+            if (networked) AssignNetworkHash(path);
+        }
+
+        /// <summary>
+        /// Netcode identifica los prefabs de red por un hash que genera al validar el asset en el Editor.
+        /// Creado por script ese paso no siempre corre: lo forzamos y verificamos.
+        /// </summary>
+        static void AssignNetworkHash(string path)
+        {
+            var asset = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            var networkObject = asset.GetComponent<NetworkObject>();
+            typeof(NetworkObject).GetMethod("OnValidate", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(networkObject, null);
+            uint hash = (uint)typeof(NetworkObject).GetField("GlobalObjectIdHash", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(networkObject);
+            if (hash == 0) throw new InvalidOperationException($"{path}: Netcode no generó el GlobalObjectIdHash");
+            EditorUtility.SetDirty(asset);
+            AssetDatabase.SaveAssetIfDirty(asset);
+        }
+
+        static T Load<T>(string path) where T : Component => AssetDatabase.LoadAssetAtPath<GameObject>(path).GetComponent<T>();
 
         // ---------------------------------------------------------------- piezas
 

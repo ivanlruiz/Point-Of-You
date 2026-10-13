@@ -21,6 +21,7 @@ namespace PointOfYou
         Rigidbody rb;
         BoxCollider box;
         Vector3 closedPosition;
+        float replicatedAmount = -1f;
 
         public float OpenAmount { get; private set; }
         public bool IsOpen => OpenAmount > 0.98f;
@@ -47,10 +48,22 @@ namespace PointOfYou
             return logic == Logic.Any ? any : all;
         }
 
+        /// <summary>Online, en los clientes la apertura la decide el host.</summary>
+        public void SetReplicated(float openAmount) => replicatedAmount = openAmount;
+
         void FixedUpdate()
         {
-            float target = ShouldOpen() ? 1f : 0f;
             float distance = Mathf.Max(openOffset.magnitude, 0.01f);
+            if (Net.IsReplica)
+            {
+                // Suavizado: el estado llega a la frecuencia de la red, no en cada frame de física.
+                if (replicatedAmount >= 0f)
+                    OpenAmount = Mathf.MoveTowards(OpenAmount, replicatedAmount, 2f * openSpeed / distance * Time.fixedDeltaTime);
+                rb.MovePosition(closedPosition + openOffset * OpenAmount);
+                return;
+            }
+
+            float target = ShouldOpen() ? 1f : 0f;
             float speed = target > OpenAmount ? openSpeed : closeSpeed;
             float next = Mathf.MoveTowards(OpenAmount, target, speed / distance * Time.fixedDeltaTime);
             if (next < OpenAmount && IsBlocked(closedPosition + openOffset * next)) return;

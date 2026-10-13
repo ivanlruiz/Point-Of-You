@@ -31,7 +31,7 @@ namespace PointOfYou
         void Update()
         {
             var gm = GameManager.Instance;
-            if (!gm) return;
+            if (!gm || Net.IsReplica) return;
             var bounds = area.bounds;
             foreach (var p in gm.Players)
             {

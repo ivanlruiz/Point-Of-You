@@ -17,6 +17,19 @@ namespace PointOfYou
         public abstract bool GrabHeld { get; }
         public abstract bool ResetPressed { get; }
         public abstract bool SameDevice(PlayerInputSource other);
+
+        /// <summary>
+        /// Dirección "adelante" en el piso que trae el propio input. Online la manda el cliente,
+        /// porque su cámara (en la cabeza de otro jugador) solo existe en su PC.
+        /// </summary>
+        public virtual bool TryGetMoveForward(out Vector3 forward)
+        {
+            forward = default;
+            return false;
+        }
+
+        /// <summary>Modo tanque elegido por el propio jugador (null: usar el del GameManager).</summary>
+        public virtual bool? TankMode => null;
     }
 
     public sealed class KeyboardInputSource : PlayerInputSource
@@ -127,6 +140,60 @@ namespace PointOfYou
 
         public override bool SameDevice(PlayerInputSource other) =>
             other is GamepadInputSource g && g.Pad == Pad;
+    }
+
+    /// <summary>Todos los dispositivos de esta PC juntos (online hay un solo jugador por PC).</summary>
+    public sealed class LocalDevicesInputSource : PlayerInputSource
+    {
+        readonly KeyboardInputSource left = new(KeyboardInputSource.Side.Left);
+        readonly KeyboardInputSource right = new(KeyboardInputSource.Side.Right);
+
+        public override string Label => "Esta PC";
+        public override bool IsConnected => true;
+
+        public override Vector2 Move
+        {
+            get
+            {
+                Vector2 v = left.Move + right.Move;
+                foreach (var pad in Gamepad.all) v += new GamepadInputSource(pad).Move;
+                return Vector2.ClampMagnitude(v, 1f);
+            }
+        }
+
+        public override bool JumpPressed
+        {
+            get
+            {
+                // Sin cortocircuito: cada fuente consume su propio "apretado este frame".
+                bool j = left.JumpPressed | right.JumpPressed;
+                foreach (var pad in Gamepad.all) j |= pad.buttonSouth.wasPressedThisFrame;
+                return j;
+            }
+        }
+
+        public override bool GrabHeld
+        {
+            get
+            {
+                if (left.GrabHeld || right.GrabHeld) return true;
+                foreach (var pad in Gamepad.all)
+                    if (new GamepadInputSource(pad).GrabHeld) return true;
+                return false;
+            }
+        }
+
+        public override bool ResetPressed
+        {
+            get
+            {
+                bool r = left.ResetPressed | right.ResetPressed;
+                foreach (var pad in Gamepad.all) r |= pad.selectButton.wasPressedThisFrame;
+                return r;
+            }
+        }
+
+        public override bool SameDevice(PlayerInputSource other) => ReferenceEquals(this, other);
     }
 
     /// <summary>Input manejado por código: para tests automáticos y, más adelante, bots.</summary>
