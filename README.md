@@ -27,9 +27,11 @@ Este repo es la **beta de la mecánica**: sala gris, personajes cápsula, 3 puzz
 | Teclado derecho | ENTER | Flechas | ENTER / NUM 0 | SHIFT DER / CTRL DER | BORRAR |
 | Joystick | A / Start | Stick / cruceta | A | Gatillos / RB / X | Select |
 
-"Arriba" te aleja de quien te mira; izquierda/derecha te hacen girar a su alrededor.
+"Arriba" te aleja de quien te mira; izquierda/derecha te hacen girar a su alrededor. Mientras mantenés una dirección, "adelante" queda fijo aunque la cámara gire (se recalcula al soltar).
 
-**Mirar alrededor:** el mouse (lo usa el jugador de WASD) o el stick derecho giran la vista desde la cabeza del otro. Cuando dejás de moverlo, la cámara vuelve sola a apuntarte. "Adelante" siempre es hacia donde mira la cámara. Durante el juego el mouse queda capturado: **Esc** lo suelta y un clic lo vuelve a capturar.
+Con el nivel en marcha, para sumarse hay que **mantener** ESPACIO / ENTER / A un momento. **Esc** abre la pausa: seguir, volver al inicio, sacar a un jugador o salir. Si un joystick se desconecta, su jugador sale solo.
+
+**Mirar alrededor:** el mouse (lo usa el jugador de WASD) o el stick derecho giran la vista desde la cabeza del otro. Cuando dejás de moverlo, la cámara vuelve sola a apuntarte. "Adelante" siempre es hacia donde mira la cámara. Durante el juego el mouse queda capturado (Esc abre la pausa y lo suelta).
 
 ### Online (una persona por PC)
 
@@ -47,7 +49,7 @@ Para probar sin otra PC, dentro de Unity: *Window → Multiplayer → Multiplaye
 
 El proyecto está vinculado al proyecto **PointOfYou** de Unity Cloud (org *ivanlruiz*). Las sesiones y Relay corren ahí y tienen un nivel gratuito.
 
-**Teclas de prueba:** F1 ayuda · F2 controles relativos a la cámara / tanque · F3 marcador cuando no te ves · F4 invierte el sentido del anillo · F5 reinicia.
+**Teclas de prueba:** F1 ayuda · F2 controles: cámara con memoria (por defecto) / cámara / tanque · F3 marcador cuando no te ves · F4 invierte el sentido del anillo (solo en local) · F5 reinicia.
 
 ## Editor de mapas
 
