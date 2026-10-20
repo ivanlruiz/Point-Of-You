@@ -34,3 +34,15 @@ Resumen de dos rondas en el chat "Feedback para Prototipo Point of You". Primero
 3. Claridad del anillo: ojos del color de quien mira, marcos de color, marcador automático tras ~0,8 s tapado, diagrama del anillo con 3, cabeza que gira con la mirada.
 4. Editor pensado para la mecánica: pieza que deja ver pero no pasar (ya está: Ventana), cortina, observador maniquí para probar solo.
 5. Rehacer los 3 niveles base (piedras desalineadas, pretil en la cornisa, puerta angosta), idealmente con el propio editor.
+
+## Ronda 3: mapas procedurales (diseño y generador de Argon)
+
+Argon diseñó y escribió `Scripts/Maps/MapGenerator.cs` (6 tipos de sala). Después de dos versiones y dos correcciones mínimas de ubicación de placas, pasan los 27 tests. Lo que pidió mirar en el primer playtest:
+
+1. **El mirador en Cornisa y Laberinto:** cuánto tardan en darse cuenta de que el pretil de 3 m les tapa la terraza y de que el observador tiene que subir a la torre o pasarela. Si guían a ciegas en vez de buscar altura, pintar las zonas de mirador de otro color.
+2. **Falsas conexiones de canal entre salas:** hay 4 colores que se repiten en hasta 7 salas, y una puerta se abre con cualquier placa de su color en todo el mapa. Ver si un jugador rezagado o una caja olvidada en la sala 1 deja abierta por accidente una puerta del mismo color en la sala 5.
+3. **Ritmo del Foso (dificultad 2 vs 3):** en la 3 el tabique alterna pared y ventana celda por medio. Ver si el camarógrafo acompaña paso a paso o si las columnas le cortan la vista en pleno salto y se siente injusto.
+4. **El efecto espejo en Puentes y Balcones:** dos jugadores que se miran de frente a través del tabique tienen izquierda y derecha invertidas. Medir cuánto tardan en calibrar hacia qué lado saltar.
+5. **Las placas de rescate:** cuando el primero pasa la puerta de salida, ver si entiende rápido que tiene que pisar la placa de rescate para liberar al que quedó sosteniendo la placa de atrás.
+
+Pidió que le contemos qué semilla jugaron y en cuál de los 6 tipos de sala hubo más gritos.
