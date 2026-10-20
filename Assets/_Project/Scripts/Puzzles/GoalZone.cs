@@ -18,6 +18,13 @@ namespace PointOfYou
             if (flag) flagRestScale = flag.localScale;
         }
 
+        /// <summary>Para piezas armadas en tiempo de juego (editor de mapas).</summary>
+        public void Configure(Transform flagTransform)
+        {
+            flag = flagTransform;
+            if (flag) flagRestScale = flag.localScale;
+        }
+
         void Update()
         {
             var gm = GameManager.Instance;

@@ -28,6 +28,15 @@ namespace PointOfYou
             area.isTrigger = true;
         }
 
+        /// <summary>Para piezas armadas en tiempo de juego (editor de mapas).</summary>
+        public void Configure(int newOrder, string newObjective, Vector3 localSpawnCenter, float radius)
+        {
+            order = newOrder;
+            objective = newObjective;
+            spawnCenter = localSpawnCenter;
+            spawnRadius = radius;
+        }
+
         void Update()
         {
             var gm = GameManager.Instance;

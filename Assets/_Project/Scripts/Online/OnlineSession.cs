@@ -202,6 +202,8 @@ namespace PointOfYou
                 go.SetActive(false); // configurar antes de que corra su Awake/OnEnable
                 nm = go.AddComponent<NetworkManager>();
                 var transport = go.AddComponent<UnityTransport>();
+                // El mapa del host viaja comprimido al conectarse; el límite por defecto (6 KB) no alcanza para mapas grandes.
+                transport.MaxPayloadSize = 128 * 1024;
                 nm.NetworkConfig ??= new NetworkConfig();
                 nm.NetworkConfig.NetworkTransport = transport;
                 nm.NetworkConfig.EnableSceneManagement = false; // todos cargan la misma escena; nada puesto en escena es de red

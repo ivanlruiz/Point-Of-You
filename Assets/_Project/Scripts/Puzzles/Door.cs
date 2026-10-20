@@ -48,6 +48,15 @@ namespace PointOfYou
             return logic == Logic.Any ? any : all;
         }
 
+        /// <summary>Para piezas armadas en tiempo de juego (editor de mapas). La posición actual pasa a ser "cerrada".</summary>
+        public void Configure(PressurePlate[] sources, Vector3 offset)
+        {
+            plates = sources;
+            openOffset = offset;
+            closedPosition = transform.position;
+            OpenAmount = 0f;
+        }
+
         /// <summary>Online, en los clientes la apertura la decide el host.</summary>
         public void SetReplicated(float openAmount) => replicatedAmount = openAmount;
 

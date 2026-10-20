@@ -12,5 +12,7 @@ namespace PointOfYou
         [SerializeField] NetworkObject prefab;
 
         public NetworkObject Prefab => prefab;
+
+        public void Configure(NetworkObject networkPrefab) => prefab = networkPrefab;
     }
 }

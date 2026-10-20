@@ -29,6 +29,17 @@ namespace PointOfYou
             ApplyVisual();
         }
 
+        /// <summary>Para piezas armadas en tiempo de juego (editor de mapas).</summary>
+        public void Configure(Renderer visual, Color idle, Color pressed)
+        {
+            plateRenderer = visual;
+            idleColor = idle;
+            pressedColor = pressed;
+            block ??= new MaterialPropertyBlock();
+            restLocalPosition = visual ? visual.transform.localPosition : Vector3.zero;
+            ApplyVisual();
+        }
+
         /// <summary>Online, en los clientes el estado lo decide el host.</summary>
         public void SetReplicated(bool pressed) => IsPressed = pressed;
 

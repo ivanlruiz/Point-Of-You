@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -19,6 +20,8 @@ namespace PointOfYou
     {
         public const int MaxPlayers = 4;
         public enum ControlMode { CameraRelative, Tank }
+        /// <summary>Estado del editor de mapas: editando (sin jugadores ni HUD) o probando el mapa.</summary>
+        public enum EditorMode { Off, Editing, Testing }
 
         public static GameManager Instance { get; private set; }
 
@@ -59,8 +62,10 @@ namespace PointOfYou
         public Checkpoint CurrentCheckpoint => checkpoint;
         /// <summary>Hay un campo de texto del HUD con el foco: no tomar teclas como input de juego.</summary>
         public bool UiHasKeyboardFocus { get; private set; }
+        /// <summary>Lo maneja <see cref="MapEditor"/>.</summary>
+        public EditorMode Editor { get; set; }
 
-        bool ShowTitle => players.Count == 0 && !Net.IsOnline;
+        bool ShowTitle => players.Count == 0 && !Net.IsOnline && Editor == EditorMode.Off;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void ResetStatics()
@@ -102,7 +107,7 @@ namespace PointOfYou
         void Update()
         {
             bool connecting = OnlineSession.Instance && OnlineSession.Instance.Busy;
-            if (!Net.IsOnline && !connecting && !UiHasKeyboardFocus) HandleJoining();
+            if (!Net.IsOnline && !connecting && !UiHasKeyboardFocus && Editor != EditorMode.Editing) HandleJoining();
             HandleGlobalKeys();
             UpdateCursor();
             foreach (var p in players)
@@ -283,6 +288,43 @@ namespace PointOfYou
                 if (p.Simulate) Respawn(p);
         }
 
+        /// <summary>Cambia el nivel activo (lo llama <see cref="MapRuntime"/> al armar un mapa).</summary>
+        public void SetLevel(Checkpoint start, Bounds levelBounds)
+        {
+            startCheckpoint = start;
+            checkpoints = FindObjectsByType<Checkpoint>(FindObjectsSortMode.None).OrderBy(c => c.Order).ToArray();
+            checkpoint = start;
+            completeElapsed = -1f;
+            startTime = players.Count > 0 ? Time.time : -1f;
+            FrameOverview(levelBounds);
+            foreach (var p in players)
+                if (p.Simulate) Respawn(p);
+        }
+
+        void FrameOverview(Bounds b)
+        {
+            if (!overviewCamera) return;
+            float size = Mathf.Max(b.size.x, b.size.z);
+            Vector3 direction = new Vector3(-0.4f, 1f, 0f).normalized;
+            overviewCamera.transform.position = b.center + direction * (size * 0.55f + 12f);
+            overviewCamera.transform.LookAt(b.center);
+        }
+
+        /// <summary>Saca a todos los jugadores locales (el editor lo usa al volver de "Probar").</summary>
+        public void ClearLocalPlayers()
+        {
+            foreach (var p in players)
+            {
+                if (p.View) Destroy(p.View.gameObject);
+                Destroy(p.gameObject);
+            }
+            players.Clear();
+            rememberedInputs.Clear();
+            completeElapsed = -1f;
+            startTime = -1f;
+            RefreshLayout();
+        }
+
         /// <summary>En los clientes online: checkpoint y meta según el host.</summary>
         public void ApplyReplicatedLevel(int checkpointOrder, float completedAfter)
         {
@@ -294,7 +336,7 @@ namespace PointOfYou
         void HandleGlobalKeys()
         {
             var kb = Keyboard.current;
-            if (kb == null || UiHasKeyboardFocus) return;
+            if (kb == null || UiHasKeyboardFocus || Editor == EditorMode.Editing) return;
             if (kb.f1Key.wasPressedThisFrame) showHelp = !showHelp;
             if (kb.f2Key.wasPressedThisFrame)
                 controls = controls == ControlMode.CameraRelative ? ControlMode.Tank : ControlMode.CameraRelative;
@@ -317,9 +359,10 @@ namespace PointOfYou
             var kb = Keyboard.current;
             var mouse = Mouse.current;
             if (kb != null && kb.escapeKey.wasPressedThisFrame) cursorReleased = true;
-            if (mouse != null && mouse.leftButton.wasPressedThisFrame && !ShowTitle) cursorReleased = false;
+            bool playing = players.Count > 0 && Editor != EditorMode.Editing;
+            if (mouse != null && mouse.leftButton.wasPressedThisFrame && playing) cursorReleased = false;
 
-            bool capture = !ShowTitle && !cursorReleased && Application.isFocused;
+            bool capture = playing && !cursorReleased && Application.isFocused;
             var mode = capture ? CursorLockMode.Locked : CursorLockMode.None;
             if (Cursor.lockState == mode) return;
             Cursor.lockState = mode;
@@ -328,6 +371,11 @@ namespace PointOfYou
 
         void Restart()
         {
+            if (Editor == EditorMode.Testing)
+            {
+                if (MapEditor.Instance) MapEditor.Instance.RestartTest();
+                return;
+            }
             if (Net.IsOnline)
             {
                 if (OnlineSession.Instance) OnlineSession.Instance.RequestRestart();
@@ -344,6 +392,7 @@ namespace PointOfYou
         Texture2D panelTexture, markerTexture;
         string codeInput = "";
         string addressInput = "127.0.0.1";
+        string mapStatus = "";
 
         void OnGUI()
         {
@@ -351,6 +400,12 @@ namespace PointOfYou
             float scale = Screen.height / 1080f;
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
             float width = Screen.width / scale, height = 1080f;
+
+            if (Editor == EditorMode.Editing)
+            {
+                UiHasKeyboardFocus = false;
+                return; // el editor dibuja su propia interfaz
+            }
 
             if (ShowTitle)
             {
@@ -466,7 +521,8 @@ namespace PointOfYou
             var online = OnlineSession.Instance;
             string where = online && online.JoinCode != null ? $"código <b>{online.JoinCode}</b>" : "IP directa";
             string role = Net.IsHost ? "sos el host" : "conectado";
-            string text = $"ONLINE · {where} · {role} · {players.Count}/{MaxPlayers} jugadores · F6 salir";
+            string mapName = MapRuntime.Instance ? MapRuntime.Instance.CurrentName : "Prototipo";
+            string text = $"ONLINE · {where} · {role} · mapa {mapName} · {players.Count}/{MaxPlayers} jugadores · F6 salir";
             if (online && !string.IsNullOrEmpty(online.Status)) text += $"\n{online.Status}";
             Vector2 size = labelStyle.CalcSize(new GUIContent(text));
             DrawPanelText(new Vector2((width - size.x) * 0.5f - 10f, 12f), text, labelStyle);
@@ -489,6 +545,7 @@ namespace PointOfYou
             }
 
             string join = !Net.IsOnline && players.Count < MaxPlayers ? "Sumarse: ESPACIO · ENTER · A (joystick)    " : "";
+            if (Editor == EditorMode.Testing) join = "PROBANDO MAPA · F10 volver al editor    " + join;
             string mode = controls == ControlMode.CameraRelative ? "relativos a la cámara" : "tanque";
             string status = $"{join}F1 ayuda · F2 controles: {mode} · F3 marcador: {(assistMarkers ? "sí" : "no")} · F4 anillo · F5 reiniciar";
             Vector2 size = smallStyle.CalcSize(new GUIContent(status));
@@ -500,7 +557,7 @@ namespace PointOfYou
             var online = OnlineSession.Instance;
             bool busy = online && online.Busy;
 
-            GUI.DrawTexture(new Rect(0f, 120f, width, 840f), panelTexture);
+            GUI.DrawTexture(new Rect(0f, 120f, width, 880f), panelTexture);
             GUI.Label(new Rect(0f, 140f, width, 100f), "POINT OF YOU", titleStyle);
             string body =
                 "Prototipo · Cada pantalla te muestra a VOS, desde los ojos de otro jugador.\n" +
@@ -509,34 +566,82 @@ namespace PointOfYou
             GUI.Label(new Rect(60f, 250f, width - 120f, 160f), body, centerStyle);
 
             float cx = width * 0.5f;
-            GUI.Label(new Rect(0f, 430f, width, 40f), "<b>ONLINE</b> (una persona por PC, desde cualquier casa)", centerStyle);
 
+            // Mapa con el que se juega (local u online): el prototipo o uno hecho con el editor.
             GUI.enabled = !busy;
-            if (GUI.Button(new Rect(cx - 300f, 480f, 600f, 56f), "Crear partida online", buttonStyle) && online)
+            GUI.Label(new Rect(0f, 405f, width, 40f), "<b>MAPA</b>", centerStyle);
+            if (GUI.Button(new Rect(cx - 545f, 448f, 230f, 48f), "Pegar código de mapa", buttonStyle)) PasteMapCode();
+            if (GUI.Button(new Rect(cx - 300f, 448f, 50f, 48f), "<", buttonStyle)) CycleMap(-1);
+            string mapName = MapRuntime.Instance ? MapRuntime.Instance.CurrentName : "Prototipo";
+            GUI.Label(new Rect(cx - 245f, 452f, 390f, 44f), $"<b>{mapName}</b>", centerStyle);
+            if (GUI.Button(new Rect(cx + 150f, 448f, 50f, 48f), ">", buttonStyle)) CycleMap(1);
+            if (GUI.Button(new Rect(cx + 215f, 448f, 230f, 48f), "Editor de mapas", buttonStyle) && MapEditor.Instance)
+                MapEditor.Instance.Open(MapRuntime.SelectedMap?.Clone());
+            if (!string.IsNullOrEmpty(mapStatus))
+                GUI.Label(new Rect(60f, 500f, width - 120f, 30f), mapStatus, smallCenterStyle);
+
+            GUI.Label(new Rect(0f, 530f, width, 40f), "<b>ONLINE</b> (una persona por PC, desde cualquier casa; se juega el mapa de quien crea la partida)", centerStyle);
+
+            if (GUI.Button(new Rect(cx - 300f, 575f, 600f, 56f), "Crear partida online", buttonStyle) && online)
                 online.HostWithCode();
 
-            GUI.Label(new Rect(cx - 300f, 560f, 120f, 50f), "Código:", labelStyle);
+            GUI.Label(new Rect(cx - 300f, 655f, 120f, 50f), "Código:", labelStyle);
             GUI.SetNextControlName("code");
-            codeInput = GUI.TextField(new Rect(cx - 180f, 556f, 260f, 52f), codeInput, 12, fieldStyle).ToUpperInvariant();
-            if (GUI.Button(new Rect(cx + 100f, 556f, 200f, 52f), "Unirse", buttonStyle) && online)
+            codeInput = GUI.TextField(new Rect(cx - 180f, 651f, 260f, 52f), codeInput, 12, fieldStyle).ToUpperInvariant();
+            if (GUI.Button(new Rect(cx + 100f, 651f, 200f, 52f), "Unirse", buttonStyle) && online)
                 online.JoinWithCode(codeInput);
 
-            GUI.Label(new Rect(0f, 650f, width, 34f), "IP directa (misma red o pruebas en esta PC; por internet hay que abrir el puerto 7777):", smallCenterStyle);
+            GUI.Label(new Rect(0f, 735f, width, 34f), "IP directa (misma red o pruebas en esta PC; por internet hay que abrir el puerto 7777):", smallCenterStyle);
             GUI.SetNextControlName("address");
-            addressInput = GUI.TextField(new Rect(cx - 300f, 694f, 260f, 46f), addressInput, 64, fieldStyle);
-            if (GUI.Button(new Rect(cx - 30f, 694f, 160f, 46f), "Hostear", buttonStyle) && online)
+            addressInput = GUI.TextField(new Rect(cx - 300f, 775f, 260f, 46f), addressInput, 64, fieldStyle);
+            if (GUI.Button(new Rect(cx - 30f, 775f, 160f, 46f), "Hostear", buttonStyle) && online)
                 online.HostDirect();
-            if (GUI.Button(new Rect(cx + 140f, 694f, 160f, 46f), "Conectar", buttonStyle) && online)
+            if (GUI.Button(new Rect(cx + 140f, 775f, 160f, 46f), "Conectar", buttonStyle) && online)
                 online.JoinDirect(addressInput);
             GUI.enabled = true;
 
             if (online && !string.IsNullOrEmpty(online.Status))
-                GUI.Label(new Rect(60f, 770f, width - 120f, 120f), online.Status, centerStyle);
+                GUI.Label(new Rect(60f, 840f, width - 120f, 100f), online.Status, centerStyle);
 
-            GUI.Label(new Rect(0f, 900f, width, 40f), "F1 muestra todos los controles.", centerStyle);
+            GUI.Label(new Rect(0f, 950f, width, 40f), "F1 muestra todos los controles.", centerStyle);
 
             UiHasKeyboardFocus = !string.IsNullOrEmpty(GUI.GetNameOfFocusedControl());
             if (showHelp && Event.current.type == EventType.Repaint) DrawHelp(width, height);
+        }
+
+        /// <summary>Pasa al mapa guardado anterior/siguiente (el primero es siempre el prototipo).</summary>
+        void CycleMap(int direction)
+        {
+            var names = new List<string> { null };
+            names.AddRange(MapLibrary.List());
+            var selected = MapRuntime.SelectedMap;
+            int i = Mathf.Max(0, names.IndexOf(selected == null ? null : MapLibrary.FileNameFor(selected.name)));
+            i = Mod(i + direction, names.Count);
+            try
+            {
+                var map = names[i] == null ? null : MapLibrary.Load(names[i]);
+                if (MapRuntime.Instance) MapRuntime.Instance.Select(map);
+                mapStatus = names.Count == 1 ? "Todavía no hay mapas guardados: hacé uno con el editor o pegá un código." : "";
+            }
+            catch (Exception e)
+            {
+                mapStatus = $"No se pudo abrir \"{names[i]}\": {e.Message}";
+            }
+        }
+
+        /// <summary>Toma un código de mapa del portapapeles, lo guarda en esta PC y lo elige.</summary>
+        void PasteMapCode()
+        {
+            if (!MapData.TryFromCode(GUIUtility.systemCopyBuffer, out var map, out string error))
+            {
+                mapStatus = error;
+                return;
+            }
+            bool same = MapLibrary.List().Contains(MapLibrary.FileNameFor(map.name)) &&
+                        MapLibrary.Load(MapLibrary.FileNameFor(map.name)).ToJson() == map.ToJson();
+            if (!same) MapLibrary.SaveAsNew(map);
+            if (MapRuntime.Instance) MapRuntime.Instance.Select(map);
+            mapStatus = $"Mapa \"{map.name}\" listo para jugar ({map.pieces.Count} piezas).";
         }
 
         void DrawComplete(float width, float height)

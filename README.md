@@ -49,6 +49,30 @@ El proyecto está vinculado al proyecto **PointOfYou** de Unity Cloud (org *ivan
 
 **Teclas de prueba:** F1 ayuda · F2 controles relativos a la cámara / tanque · F3 marcador cuando no te ves · F4 invierte el sentido del anillo · F5 reinicia.
 
+## Editor de mapas
+
+Desde la pantalla de inicio: **Editor de mapas**. Los mapas se arman en una grilla de 1 m con estas piezas:
+
+| Tecla | Pieza | |
+|---|---|---|
+| 1 | Piso | arrastrá para pintar un rectángulo |
+| 2 | Pared | 3 m de alto |
+| 3 | Ventana | se ve a través, no se pasa |
+| 4 | Bloque | 1 m de alto (se sube con la caja, no saltando desde el piso si está apilado) |
+| 5 | Piedra | piso de otro color, para caminos de salto |
+| 6 | Placa | se conecta con las puertas del mismo **canal** (C cambia el color) |
+| 7 | Puerta | se abre mientras alguna placa de su canal esté pisada; R la gira |
+| 8 | Caja | se puede agarrar y arrastrar |
+| 9 | Inicio | donde aparecen los jugadores (uno solo) |
+| 0 | Checkpoint | punto de reaparición |
+| - | Meta | se completa cuando están todos adentro |
+
+Clic izquierdo pone, clic derecho borra, **PgUp/PgDn** cambia la altura (cada nivel son 0,5 m), WASD mueve la cámara, Q/E o rueda del medio la giran, la rueda hace zoom, **Ctrl+Z** deshace, **Ctrl+S** guarda y **P** prueba el mapa con jugadores locales (**F10** vuelve al editor).
+
+- **Guardar / Abrir**: los mapas quedan en esta PC (`%USERPROFILE%\AppData\LocalLow\DefaultCompany\PointOfYou\Mapas`).
+- **Copiar código**: copia el mapa como texto (`POY1:…`) para pasarlo por chat. El otro lo usa con **Pegar código de mapa** en la pantalla de inicio.
+- **Online**: se juega el mapa elegido por quien crea la partida; a los demás les llega solo.
+
 ## El nivel
 
 1. **La puerta.** Dos placas amarillas, una de cada lado, abren la puerta mientras alguien las pisa.

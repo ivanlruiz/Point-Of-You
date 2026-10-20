@@ -79,6 +79,24 @@ namespace PointOfYou.EditorTools
             Set(online, "playerPrefab", Load<NetworkObject>(NetworkPlayerPrefabPath));
             Set(online, "levelStatePrefab", Load<NetworkObject>(LevelStatePrefabPath));
 
+            // Mapas hechos por jugadores: el armador (reemplaza al prototipo cuando hay un mapa elegido) y el editor.
+            var maps = new GameObject("Mapas");
+            var mapRuntime = maps.AddComponent<MapRuntime>();
+            Set(mapRuntime, "prototypeRoot", level.gameObject);
+            Set(mapRuntime, "prototypeStart", start);
+            Set(mapRuntime, "networkBoxPrefab", Load<NetworkObject>(NetworkBoxPrefabPath));
+            Set(mapRuntime, "floorMaterial", m.Floor);
+            Set(mapRuntime, "wallMaterial", m.Wall);
+            Set(mapRuntime, "blockMaterial", m.Ledge);
+            Set(mapRuntime, "stoneMaterial", m.Stone);
+            Set(mapRuntime, "boxMaterial", m.Box);
+            Set(mapRuntime, "goalMaterial", m.Goal);
+            Set(mapRuntime, "doorMaterial", m.DoorOne);
+            Set(mapRuntime, "plateMaterial", m.PlateOne);
+            var mapEditor = maps.AddComponent<MapEditor>();
+            Set(mapEditor, "cursorMaterial", m.Goal);
+            Set(mapEditor, "gridMaterial", m.Wall);
+
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
             AssetDatabase.SaveAssets();

@@ -18,6 +18,7 @@ namespace PointOfYou
     ///                                       acciones: up, down, left, right, stop, jump, grab, release, tp=x;y;z (solo host)
     ///   -pou-report &lt;archivo.jsonl&gt;         escribe el estado 4 veces por segundo (una línea JSON por muestra)
     ///   -pou-capture &lt;archivo.png&gt; &lt;t&gt;      guarda la pantalla del jugador local a los t segundos
+    ///   -pou-map &lt;archivo&gt;                 antes de conectar elige ese mapa (JSON o código POY1:)
     ///   -pou-quit &lt;segundos&gt;                cierra el juego
     /// </summary>
     public class OnlineLauncher : MonoBehaviour
@@ -82,6 +83,19 @@ namespace PointOfYou
             if (!started && online)
             {
                 started = true;
+                string mapFile = Arg("-pou-map");
+                if (mapFile != null && MapRuntime.Instance)
+                {
+                    string text = File.ReadAllText(mapFile).Trim();
+                    MapData map = null;
+                    if (text.StartsWith("{")) map = MapData.FromJson(text);
+                    else if (!MapData.TryFromCode(text, out map, out string error)) Log($"mapa inválido: {error}");
+                    if (map != null)
+                    {
+                        MapRuntime.Instance.Select(map);
+                        Log($"mapa elegido: {map.name} ({map.pieces.Count} piezas)");
+                    }
+                }
                 if (Has("-pou-host"))
                 {
                     ushort port = (ushort)ParseFloat(Arg("-pou-host"), OnlineSession.DefaultPort);
@@ -196,6 +210,7 @@ namespace PointOfYou
             var sb = new StringBuilder("{");
             sb.Append($"\"t\":{F(Time.realtimeSinceStartup)},");
             sb.Append($"\"role\":\"{(Net.IsHost ? "host" : Net.IsReplica ? "client" : "offline")}\",");
+            sb.Append($"\"map\":\"{(MapRuntime.Instance ? MapRuntime.Instance.CurrentName : "?")}\",");
             if (gm)
             {
                 var observer = local ? gm.ObserverOf(local) : null;
