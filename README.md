@@ -84,7 +84,19 @@ unity test . --mode PlayMode
 
 # Build de Windows (queda en Builds/, que no se sube a git)
 unity build . --target StandaloneWindows64 --output-path Builds/Windows/PointOfYou.exe
+
+# Build de Linux (necesita el módulo "Linux Build Support (Mono)" en Unity)
+unity build . --target StandaloneLinux64 --output-path Builds/Linux/PointOfYou.x86_64
 ```
+
+En Linux, el juego se reparte como `.tar.gz` y no como `.zip`, para que conserve el permiso de ejecución:
+
+```bash
+tar xzf PointOfYou-Linux.tar.gz
+./PointOfYou/PointOfYou.x86_64
+```
+
+Para jugar online entre Windows y Linux, los dos builds tienen que salir del mismo commit.
 
 Prueba online automática con dos procesos (host y cliente manejados por bots):
 
