@@ -29,6 +29,8 @@ Este repo es la **beta de la mecánica**: sala gris, personajes cápsula, 3 puzz
 
 "Arriba" te aleja de quien te mira; izquierda/derecha te hacen girar a su alrededor.
 
+**Mirar alrededor:** el mouse (lo usa el jugador de WASD) o el stick derecho giran la vista desde la cabeza del otro. Cuando dejás de moverlo, la cámara vuelve sola a apuntarte. "Adelante" siempre es hacia donde mira la cámara. Durante el juego el mouse queda capturado: **Esc** lo suelta y un clic lo vuelve a capturar.
+
 ### Online (una persona por PC)
 
 En la pantalla de inicio:
