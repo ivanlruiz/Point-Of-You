@@ -45,6 +45,17 @@ namespace PointOfYou
         [SerializeField] float grabDamper = 25f;
         [SerializeField] float grabBreakForce = 900f;
 
+        [Header("Empujones")]
+        [Tooltip("Velocidad (m/s) con la que otro jugador te tiene que llevar por delante para que te tambalees. Corriendo es 4,5.")]
+        [SerializeField] float shoveThreshold = 3f;
+        [Tooltip("Parte de esa velocidad que se suma además del choque físico.")]
+        [SerializeField] float shoveBoost = 0.3f;
+        [SerializeField] float shovePop = 1f;
+        [Tooltip("Control mínimo (0-1) justo después de un golpe fuerte.")]
+        [SerializeField] float minControl = 0.05f;
+        [Tooltip("Segundos para recuperar el control entero desde el mínimo.")]
+        [SerializeField] float controlRecovery = 0.6f;
+
         Rigidbody rb;
         CapsuleCollider capsule;
         SpringJoint grabJoint;
@@ -55,6 +66,10 @@ namespace PointOfYou
         bool remoteGrabbing;
         Vector3 remoteGrabPoint;
         bool regrabLocked; // después de perder un agarre hay que soltar el botón antes de volver a agarrar
+        Vector3 eyeLocal;
+        PlayerWobble wobble;
+        float control = 1f;
+        Vector3 expectedVelocity; // horizontal: la que pidió el control en este paso de física
         readonly DirectionMemory directionMemory = new();
         readonly RaycastHit[] groundHits = new RaycastHit[8];
         readonly Collider[] grabOverlap = new Collider[16];
@@ -76,7 +91,11 @@ namespace PointOfYou
 
         public Rigidbody Body => rb;
         public Transform Head => head;
-        public Vector3 EyePosition => head.position;
+        /// <summary>
+        /// Dónde va la cámara de quien mira desde esta cabeza. Fijo respecto de la raíz: el bamboleo mueve la
+        /// cabeza que ven los demás, pero no la cámara.
+        /// </summary>
+        public Vector3 EyePosition => transform.TransformPoint(eyeLocal);
         public Vector3 ChestPosition => chest.position;
         public Renderer[] HeadRenderers => headRenderers;
         public bool IsGrounded { get; private set; }
@@ -86,11 +105,18 @@ namespace PointOfYou
             ? grabbedBody.transform.TransformPoint(grabJoint.connectedAnchor)
             : hand.position;
         public string DisplayName => $"J{Index + 1}";
+        /// <summary>Si la mano se ve agarrando algo (también en los clientes, con el estado que llega por red).</summary>
+        public bool ShowsGrab => Simulate ? IsGrabbing : remoteGrabbing;
+        public Vector3 ShownGrabPoint => Simulate ? GrabPoint : remoteGrabPoint;
+        /// <summary>1 = control total; baja después de un empujón fuerte y se recupera solo.</summary>
+        public float ControlFactor => control;
 
         void Awake()
         {
             rb = GetComponent<Rigidbody>();
             capsule = GetComponent<CapsuleCollider>();
+            wobble = GetComponent<PlayerWobble>();
+            eyeLocal = transform.InverseTransformPoint(head.position);
             if (handRenderer) handRenderer.enabled = false;
         }
 
@@ -143,11 +169,14 @@ namespace PointOfYou
             Vector3 wish = ComputeWishDirection(out float tankYaw);
 
             // Velocidad horizontal: acelerar hacia la deseada (también frena cuando no hay input).
+            // Después de un empujón el control vuelve de a poco: mientras tanto, el golpe se desliza.
+            control = Mathf.MoveTowards(control, 1f, dt * (1f - minControl) / controlRecovery);
             Vector3 v = rb.linearVelocity;
             var horizontal = new Vector3(v.x, 0f, v.z);
-            float accel = IsGrounded ? groundAcceleration : airAcceleration;
+            float accel = (IsGrounded ? groundAcceleration : airAcceleration) * control;
             Vector3 next = Vector3.MoveTowards(horizontal, wish * moveSpeed, accel * dt);
             rb.AddForce(next - horizontal, ForceMode.VelocityChange);
+            expectedVelocity = next;
 
             // Orientación.
             if (!Mathf.Approximately(tankYaw, 0f))
@@ -193,13 +222,51 @@ namespace PointOfYou
 
             if (handRenderer)
             {
-                bool showHand = Simulate ? IsGrabbing : remoteGrabbing;
+                bool showHand = ShowsGrab;
                 handRenderer.enabled = showHand;
                 if (showHand)
-                    handRenderer.transform.position = Simulate ? GrabPoint : remoteGrabPoint;
+                    handRenderer.transform.position = ShownGrabPoint;
                 else
                     handRenderer.transform.localPosition = Vector3.zero;
             }
+        }
+
+        /// <summary>
+        /// Empujón: cambia la velocidad y te quita el control un rato, según qué tan fuerte fue.
+        /// Solo donde corre la física (offline o en el host).
+        /// </summary>
+        public void Shove(Vector3 velocityChange)
+        {
+            if (!Simulate) return;
+            rb.AddForce(velocityChange, ForceMode.VelocityChange);
+            Stagger(new Vector2(velocityChange.x, velocityChange.z).magnitude);
+        }
+
+        void Stagger(float strength) =>
+            control = Mathf.Min(control, Mathf.Lerp(1f, minControl, Mathf.Clamp01(strength / 3f)));
+
+        /// <summary>
+        /// Choque con otro jugador. Se decide al primer contacto con las velocidades que cada uno pidió antes del
+        /// paso de física (el impulso real se reparte en varios pasos con el contacto especulativo). Te tambaleás si
+        /// el otro venía hacia vos más rápido que vos hacia él: chocar contra alguien que viene de frente o frenar
+        /// contra alguien quieto no cuenta. Paredes, puertas y cajas tampoco.
+        /// </summary>
+        void OnCollisionEnter(Collision collision)
+        {
+            if (!Simulate) return;
+            var other = collision.rigidbody ? collision.rigidbody.GetComponent<PlayerCharacter>() : null;
+            if (!other || other.Body.isKinematic) return;
+
+            Vector3 toMe = transform.position - other.transform.position;
+            toMe.y = 0f;
+            if (toMe.sqrMagnitude < 1e-4f) return;
+            toMe.Normalize();
+            float theirs = Vector3.Dot(other.expectedVelocity, toMe);
+            float mine = -Vector3.Dot(expectedVelocity, toMe);
+            float hit = Mathf.Clamp(theirs - Mathf.Max(mine, 0f), 0f, theirs + mine);
+            if (hit < shoveThreshold) return;
+            rb.AddForce(toMe * (hit * shoveBoost) + Vector3.up * shovePop, ForceMode.VelocityChange);
+            Stagger(hit);
         }
 
         bool IsTankMode => InputSource?.TankMode ??
@@ -318,6 +385,8 @@ namespace PointOfYou
             rb.angularVelocity = Vector3.zero;
             jumpBufferedUntil = float.NegativeInfinity;
             directionMemory.Reset();
+            control = 1f;
+            if (wobble) wobble.ResetMotion();
             // Online: Teleport hace que los clientes lo vean aparecer en vez de interpolar un vuelo.
             var nt = GetComponent<Unity.Netcode.Components.NetworkTransform>();
             if (nt && nt.IsSpawned && nt.IsServer) nt.Teleport(position, rotation, transform.localScale);

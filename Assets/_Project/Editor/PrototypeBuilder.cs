@@ -240,16 +240,36 @@ namespace PointOfYou.EditorTools
             capsule.sharedMaterial = m.PlayerPhysics;
 
             var player = root.AddComponent<PlayerCharacter>();
+            var wobble = root.AddComponent<PlayerWobble>();
 
-            var body = Visual(PrimitiveType.Capsule, "Cuerpo", root.transform, Vector3.zero, new Vector3(0.7f, 0.8f, 0.7f), m.PlayerBase);
-            Visual(PrimitiveType.Cube, "Pechera", root.transform, new Vector3(0f, 0.2f, 0.32f), new Vector3(0.3f, 0.22f, 0.08f), m.Badge);
+            // Lo que se ve cuelga de "Visual" (se inclina); el cuerpo, de "Torso" (se aplasta desde los pies).
+            // La raíz conserva el pecho y la mano, que usan la cámara y el agarre: el bamboleo no los mueve.
+            var pivot = new GameObject("Visual").transform;
+            pivot.SetParent(root.transform, false);
+            var torso = new GameObject("Torso").transform;
+            torso.SetParent(pivot, false);
+            torso.localPosition = new Vector3(0f, -0.8f, 0f);
+            var body = Visual(PrimitiveType.Capsule, "Cuerpo", torso, new Vector3(0f, 0.8f, 0f), new Vector3(0.7f, 0.8f, 0.7f), m.PlayerBase);
+            Visual(PrimitiveType.Cube, "Pechera", torso, new Vector3(0f, 1f, 0.32f), new Vector3(0.3f, 0.22f, 0.08f), m.Badge);
 
             var head = new GameObject("Cabeza").transform;
-            head.SetParent(root.transform, false);
+            head.SetParent(pivot, false);
             head.localPosition = new Vector3(0f, 1f, 0f);
             var headMesh = Visual(PrimitiveType.Sphere, "Cabeza malla", head, Vector3.zero, Vector3.one * 0.56f, m.PlayerBase);
             var eyeL = Visual(PrimitiveType.Sphere, "Ojo izq", head, new Vector3(-0.1f, 0.05f, 0.24f), Vector3.one * 0.1f, m.Eye);
             var eyeR = Visual(PrimitiveType.Sphere, "Ojo der", head, new Vector3(0.1f, 0.05f, 0.24f), Vector3.one * 0.1f, m.Eye);
+
+            Transform Shoulder(string side, float x, out Renderer arm)
+            {
+                var shoulder = new GameObject($"Hombro {side}").transform;
+                shoulder.SetParent(pivot, false);
+                shoulder.localPosition = new Vector3(x, 0.3f, 0f);
+                arm = Visual(PrimitiveType.Capsule, $"Brazo {side}", shoulder, new Vector3(0f, -0.25f, 0f), new Vector3(0.16f, 0.25f, 0.16f), m.PlayerBase)
+                    .GetComponent<Renderer>();
+                return shoulder;
+            }
+            var leftShoulder = Shoulder("izq", -0.38f, out var leftArm);
+            var rightShoulder = Shoulder("der", 0.38f, out var rightArm);
 
             var chest = new GameObject("Pecho").transform;
             chest.SetParent(root.transform, false);
@@ -263,10 +283,15 @@ namespace PointOfYou.EditorTools
             Set(player, "head", head);
             Set(player, "chest", chest);
             Set(player, "hand", hand);
-            Set(player, "tintRenderers", new Object[] { body.GetComponent<Renderer>(), handMesh.GetComponent<Renderer>() });
+            Set(player, "tintRenderers", new Object[] { body.GetComponent<Renderer>(), handMesh.GetComponent<Renderer>(), leftArm, rightArm });
             Set(player, "lightTintRenderers", new Object[] { headMesh.GetComponent<Renderer>() });
             Set(player, "headRenderers", new Object[] { headMesh.GetComponent<Renderer>(), eyeL.GetComponent<Renderer>(), eyeR.GetComponent<Renderer>() });
             Set(player, "handRenderer", handMesh.GetComponent<Renderer>());
+            Set(wobble, "visual", pivot);
+            Set(wobble, "torso", torso);
+            Set(wobble, "head", head);
+            Set(wobble, "leftShoulder", leftShoulder);
+            Set(wobble, "rightShoulder", rightShoulder);
 
             if (networked)
             {

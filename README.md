@@ -29,6 +29,8 @@ Este repo es la **beta de la mecánica**: sala gris, personajes cápsula, 3 puzz
 
 "Arriba" te aleja de quien te mira; izquierda/derecha te hacen girar a su alrededor. Mientras mantenés una dirección, "adelante" queda fijo aunque la cámara gire (se recalcula al soltar).
 
+Los cuerpos se bambolean: se inclinan al arrancar y frenar, se aplastan al caer y mueven los brazos (y los estiran hacia lo que agarran). Si otro jugador te lleva por delante corriendo, te empuja y te tambaleás un momento. La cámara que está en tu cabeza no se mueve con el bamboleo.
+
 Con el nivel en marcha, para sumarse hay que **mantener** ESPACIO / ENTER / A un momento. **Esc** abre la pausa: seguir, volver al inicio, sacar a un jugador o salir. Si un joystick se desconecta, su jugador sale solo.
 
 **Mirar alrededor:** el mouse (lo usa el jugador de WASD) o el stick derecho giran la vista desde la cabeza del otro. Cuando dejás de moverlo, la cámara vuelve sola a apuntarte. "Adelante" siempre es hacia donde mira la cámara. Durante el juego el mouse queda capturado (Esc abre la pausa y lo suelta).
@@ -104,7 +106,8 @@ Las pruebas `ProcGenTests` verifican el generador: determinismo, 180 combinacion
 Assets/_Project/
   Scripts/Core/GameManager.cs        ingreso de jugadores, anillo, pantalla dividida, checkpoints, HUD
   Scripts/Camera/RingCamera.cs       la cámara en la cabeza del otro (oculta esa cabeza solo para esa cámara)
-  Scripts/Player/PlayerCharacter.cs  cápsula física: mover, saltar, agarrar (SpringJoint)
+  Scripts/Player/PlayerCharacter.cs  cápsula física: mover, saltar, agarrar (SpringJoint), empujones
+  Scripts/Player/PlayerWobble.cs     bamboleo cosmético: inclinación, aplastado, cabeza y brazos (no mueve la cámara)
   Scripts/Input/PlayerInputSource.cs teclado partido en dos, joysticks y bots para tests
   Scripts/Puzzles/                   placas, puertas, checkpoints, meta, objetos que reaparecen
   Scripts/Online/OnlineSession.cs    crear / unirse (código o IP), spawnea jugadores y el estado del nivel
@@ -154,5 +157,5 @@ Con `-pou-code-host <archivo>` / `-pou-code-join <archivo>` hace lo mismo con c�
 
 - **Probarlo en serio** con 2, 3 y 4 personas y decidir: ¿controles relativos a la cámara o tipo tanque (F2)? ¿marcador de ayuda sí o no (F3)?
 - **Online:** jugarlo con gente real y ver cuánto molesta el retraso del propio personaje en los clientes (~145 ms + ping). Si molesta, el paso siguiente es que cada cliente simule su propio personaje. Después: reconexión, migración de host, pantalla dividida + online combinados.
-- **Sensación Gang Beasts:** ragdoll activo, brazos que agarran de verdad, colgarse de cornisas.
+- **Sensación Gang Beasts:** ya hay bamboleo, brazos y empujones. Falta: ragdoll activo, colgarse de cornisas, tirar y lanzar cosas.
 - Estética, narrativa y mapas.

@@ -37,7 +37,7 @@ namespace PointOfYou
 
         // Cada cuánto como mínimo se reenvía el input aunque no cambie (si se pierde un paquete, el siguiente lo corrige).
         const float InputResendInterval = 1f / 30f;
-        const float InputMinInterval = 1f / 120f;
+        const float InputMinInterval = 1f / 60f; // la física corre a 50 Hz: más seguido no sirve
         const float PingInterval = 0.5f;
 
         readonly NetworkVariable<int> index = new(-1);
