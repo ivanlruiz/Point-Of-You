@@ -56,6 +56,14 @@ namespace PointOfYou
         public string CurrentName => Current != null ? Current.name : "Prototipo";
         public IReadOnlyList<PressurePlate> Plates => plates;
         public IReadOnlyList<Door> Doors => doors;
+        /// <summary>Puertas que no tienen ninguna placa de su color cerca (no se pueden abrir).</summary>
+        public int UnlinkedDoorCount { get; private set; }
+
+        /// <summary>
+        /// Margen para considerar "igual de cerca" a otra puerta del mismo color (puertas de varias hojas,
+        /// o una puerta con placas de los dos lados).
+        /// </summary>
+        const float LinkSlack = 4f;
         public Bounds LevelBounds => bounds;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -94,6 +102,7 @@ namespace PointOfYou
             }
             plates.Clear();
             doors.Clear();
+            UnlinkedDoorCount = 0;
             Current = map;
             BuildVersion++;
 
@@ -175,9 +184,28 @@ namespace PointOfYou
             for (int i = 0; i < checkpoints.Count; i++)
                 checkpoints[i].Configure(i + 1, $"Checkpoint {i + 1} · {map.name}", new Vector3(0f, -0.6f, 0f), 1f);
 
-            foreach (var (door, channel) in pendingDoors)
+            // Cada placa abre las puertas de su color que le quedan MÁS CERCA (con un margen para puertas de varias
+            // hojas). Antes abría todas las de su color del mapa: con 4 colores repetidos en salas lejanas, una caja
+            // olvidada sobre una placa de la sala 1 dejaba abierta una puerta de la sala 5.
+            var linked = new Dictionary<Door, List<PressurePlate>>();
+            foreach (var (door, _) in pendingDoors) linked[door] = new List<PressurePlate>();
+            for (int channel = 0; channel < platesByChannel.Length; channel++)
             {
-                door.Configure(platesByChannel[channel].ToArray(), Vector3.down * 2.65f);
+                var sameColor = pendingDoors.FindAll(d => d.channel == channel);
+                if (sameColor.Count == 0) continue;
+                foreach (var plate in platesByChannel[channel])
+                {
+                    float nearest = float.MaxValue;
+                    foreach (var (door, _) in sameColor) nearest = Mathf.Min(nearest, LinkDistance(plate, door));
+                    foreach (var (door, _) in sameColor)
+                        if (LinkDistance(plate, door) <= nearest + LinkSlack) linked[door].Add(plate);
+                }
+            }
+            UnlinkedDoorCount = 0;
+            foreach (var (door, _) in pendingDoors)
+            {
+                door.Configure(linked[door].ToArray(), Vector3.down * 2.65f);
+                if (linked[door].Count == 0) UnlinkedDoorCount++;
                 doors.Add(door);
             }
             foreach (var list in platesByChannel) plates.AddRange(list);
@@ -190,6 +218,10 @@ namespace PointOfYou
             if (!start) Debug.LogWarning($"[Mapas] \"{map.name}\" no tiene Inicio: se aparece en el origen.");
             if (gm) gm.SetLevel(start, bounds);
         }
+
+        // Placa (en el piso) contra la base de la puerta: la altura cuenta igual que la distancia horizontal.
+        static float LinkDistance(PressurePlate plate, Door door) =>
+            Vector3.Distance(plate.transform.position, door.transform.position + Vector3.down * 1.3f);
 
         // ---------------------------------------------------------------- piezas
 

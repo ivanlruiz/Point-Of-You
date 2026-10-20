@@ -138,7 +138,12 @@ namespace PointOfYou
             runtime.Build(map);
         }
 
-        void Rebuild() => runtime.Build(map, editing: IsEditing);
+        void Rebuild()
+        {
+            runtime.Build(map, editing: IsEditing);
+            if (runtime.UnlinkedDoorCount > 0)
+                status = $"Ojo: {runtime.UnlinkedDoorCount} puerta(s) sin placa de su color cerca. Cada placa abre las puertas de su color más cercanas.";
+        }
 
         // ---------------------------------------------------------------- edición (también la usan los tests)
 

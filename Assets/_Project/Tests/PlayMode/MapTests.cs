@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Linq;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -83,6 +84,37 @@ namespace PointOfYou.Tests
             yield return Seconds(1.2f);
             Assert.IsTrue(runtime.Plates[0].IsPressed);
             Assert.IsTrue(door.IsOpen, "La placa celeste debería abrir la puerta celeste");
+        }
+
+        [UnityTest]
+        public IEnumerator PlacaDeOtraSala_NoAbreEstaPuerta()
+        {
+            // Dos "salas" del mismo color (amarillo) a 30 m: cada placa abre solo la puerta que le queda cerca.
+            var map = MapData.CreateDefault("Mismo color, salas lejanas");
+            map.pieces[0].d = 48; // piso de z -2 a 46
+            map.pieces.Add(new MapPiece { type = PieceType.Plate, x = 2, z = 2, w = 2, d = 2, channel = 0 });
+            map.pieces.Add(new MapPiece { type = PieceType.Door, x = 0, z = 8, channel = 0 });
+            map.pieces.Add(new MapPiece { type = PieceType.Door, x = 0, z = 38, channel = 0 });
+            map.pieces.Add(new MapPiece { type = PieceType.Plate, x = 2, z = 41, w = 2, d = 2, channel = 0 });
+            runtime.Select(map);
+            var near = runtime.Doors[0];
+            var far = runtime.Doors[1];
+            Assert.AreEqual(1, near.PlateCount, "La puerta cercana tiene solo su placa");
+            Assert.AreEqual(1, far.PlateCount, "La lejana, solo la suya");
+            Assert.AreEqual(0, runtime.UnlinkedDoorCount);
+
+            var a = gm.Join(new ScriptedInputSource("A"), remember: false);
+            yield return Seconds(0.3f);
+            a.Respawn(runtime.Plates[0].transform.position + Vector3.up * 0.9f, Quaternion.identity);
+            yield return Seconds(1.2f);
+            Assert.IsTrue(near.IsOpen, "La placa de la sala 1 abre su puerta");
+            Assert.Less(far.OpenAmount, 0.01f, "...pero no la del mismo color a 30 m");
+
+            var farPlate = runtime.Plates.First(p => p != runtime.Plates[0]);
+            a.Respawn(farPlate.transform.position + Vector3.up * 0.9f, Quaternion.identity);
+            yield return Seconds(2.5f);
+            Assert.IsTrue(far.IsOpen, "La placa de la sala 2 abre la puerta de la sala 2");
+            Assert.Less(near.OpenAmount, 0.05f, "...y la de la sala 1 se cerró");
         }
 
         [UnityTest]

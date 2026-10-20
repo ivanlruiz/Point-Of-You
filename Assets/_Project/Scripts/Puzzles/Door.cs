@@ -24,6 +24,8 @@ namespace PointOfYou
         float replicatedAmount = -1f;
 
         public float OpenAmount { get; private set; }
+        public int PlateCount => plates?.Length ?? 0;
+        public System.Collections.Generic.IReadOnlyList<PressurePlate> Plates => plates ?? System.Array.Empty<PressurePlate>();
         public bool IsOpen => OpenAmount > 0.98f;
 
         void Awake()

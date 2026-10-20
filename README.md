@@ -62,8 +62,8 @@ Desde la pantalla de inicio: **Editor de mapas**. Los mapas se arman en una gril
 | 3 | Ventana | se ve a través, no se pasa |
 | 4 | Bloque | 1 m de alto (se sube con la caja, no saltando desde el piso si está apilado) |
 | 5 | Piedra | piso de otro color, para caminos de salto |
-| 6 | Placa | se conecta con las puertas del mismo **canal** (C cambia el color) |
-| 7 | Puerta | se abre mientras alguna placa de su canal esté pisada; R la gira |
+| 6 | Placa | abre las puertas de su mismo **color** (C lo cambia) que le quedan más cerca; las de ese color en otra punta del mapa no |
+| 7 | Puerta | se abre mientras esté pisada alguna de sus placas (las de su color más cercanas); R la gira |
 | 8 | Caja | se puede agarrar y arrastrar |
 | 9 | Inicio | donde aparecen los jugadores (uno solo) |
 | 0 | Checkpoint | punto de reaparición |

@@ -70,6 +70,7 @@ namespace PointOfYou.Tests
                 Assert.AreEqual(1, map.pieces.Count(p => p.type == PieceType.Start), $"{id}: tiene que haber un solo Inicio");
                 Assert.IsTrue(MapData.TryFromCode(map.ToCode(), out var back, out _) && back.ToJson() == map.ToJson(), $"{id}: el código para compartir no vuelve igual");
                 runtime.Build(map); // si tira una excepción, el test falla
+                Assert.AreEqual(0, runtime.UnlinkedDoorCount, $"{id}: hay puertas sin ninguna placa de su color cerca");
                 count++;
                 if (count % 30 == 0) yield return null;
             }
@@ -152,9 +153,9 @@ namespace PointOfYou.Tests
 
             foreach (var door in runtime.Doors)
             {
-                int channel = ChannelOf(door);
-                var plate = runtime.Plates.FirstOrDefault(p => ChannelOf(p) == channel);
-                Assert.IsNotNull(plate, $"semilla {seed}: {door.name} no tiene placa de su canal");
+                Assert.Greater(door.PlateCount, 0, $"semilla {seed}: {door.name} no tiene placa conectada");
+                var plate = door.Plates[0];
+                Assert.AreEqual(ChannelOf(door), ChannelOf(plate), $"semilla {seed}: {door.name} quedó conectada a una placa de otro color");
                 a.Respawn(plate.transform.position + Vector3.up * 0.9f, Quaternion.identity);
                 yield return Seconds(1.2f);
                 Assert.IsTrue(plate.IsPressed, $"semilla {seed}: {plate.name} no se presiona con un jugador encima");
