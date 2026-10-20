@@ -41,6 +41,7 @@ namespace PointOfYou
         static bool assistMarkers;
         static bool ringReversed;
         static bool showHelp;
+        static bool cursorReleased;
 
         readonly List<PlayerCharacter> players = new();
         Checkpoint[] checkpoints;
@@ -70,6 +71,7 @@ namespace PointOfYou
             assistMarkers = false;
             ringReversed = false;
             showHelp = false;
+            cursorReleased = false;
         }
 
         void Awake()
@@ -102,6 +104,7 @@ namespace PointOfYou
             bool connecting = OnlineSession.Instance && OnlineSession.Instance.Busy;
             if (!Net.IsOnline && !connecting && !UiHasKeyboardFocus) HandleJoining();
             HandleGlobalKeys();
+            UpdateCursor();
             foreach (var p in players)
                 if (p.Simulate && p.transform.position.y < killHeight) Respawn(p);
         }
@@ -156,6 +159,7 @@ namespace PointOfYou
             if (startTime < 0f) startTime = Time.time;
             player.name = $"J{index + 1}";
             player.Initialize(index, playerColors[index % playerColors.Length], source, localView ? CreateView(index) : null);
+            if (player.View) player.View.LookSource = source;
             players.Add(player);
             players.Sort((a, b) => a.Index.CompareTo(b.Index));
             RefreshRing();
@@ -302,6 +306,24 @@ namespace PointOfYou
             }
             if (kb.f5Key.wasPressedThisFrame) Restart();
             if (kb.f6Key.wasPressedThisFrame && Net.IsOnline && OnlineSession.Instance) OnlineSession.Instance.Leave();
+        }
+
+        /// <summary>
+        /// Durante el juego el mouse queda capturado para "mirar alrededor".
+        /// Esc lo suelta (para usar otra ventana); un clic lo vuelve a capturar.
+        /// </summary>
+        void UpdateCursor()
+        {
+            var kb = Keyboard.current;
+            var mouse = Mouse.current;
+            if (kb != null && kb.escapeKey.wasPressedThisFrame) cursorReleased = true;
+            if (mouse != null && mouse.leftButton.wasPressedThisFrame && !ShowTitle) cursorReleased = false;
+
+            bool capture = !ShowTitle && !cursorReleased && Application.isFocused;
+            var mode = capture ? CursorLockMode.Locked : CursorLockMode.None;
+            if (Cursor.lockState == mode) return;
+            Cursor.lockState = mode;
+            Cursor.visible = !capture;
         }
 
         void Restart()
@@ -533,6 +555,7 @@ namespace PointOfYou
                 "<b>Teclado izquierdo</b>   WASD mover · ESPACIO saltar · SHIFT IZQ / E agarrar (mantener) · R reaparecer\n" +
                 "<b>Teclado derecho</b>   FLECHAS mover · ENTER / NUM 0 saltar · SHIFT DER / CTRL DER agarrar · BORRAR reaparecer\n" +
                 "<b>Joystick</b>   stick / cruceta mover · A saltar · gatillos / RB / X agarrar · SELECT reaparecer\n" +
+                "<b>Mirar alrededor</b>   mouse (jugador de WASD) o stick derecho; al soltarlo la vista vuelve a apuntarte · ESC suelta el mouse\n" +
                 "Online cualquiera de esos controles maneja a tu jugador.\n\n" +
                 "<b>Cómo funciona</b>\n" +
                 "Tu pantalla está en la cabeza de otro jugador y siempre te apunta a vos.\n" +

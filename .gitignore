@@ -56,3 +56,7 @@ crashlytics-build.properties
 /*.log
 .DS_Store
 Thumbs.db
+
+# Builds hechos a mano en la raíz del proyecto
+/Game/
+/Game.zip

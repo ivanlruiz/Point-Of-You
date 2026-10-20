@@ -82,6 +82,29 @@ namespace PointOfYou.Tests
         }
 
         [UnityTest]
+        public IEnumerator MirarAlrededor_GiraYVuelveSola()
+        {
+            var a = Bot("A");
+            Bot("B");
+            yield return Seconds(0.6f);
+            AssertViewFromObserverHead(a);
+
+            InputOf(a).LookValue = new Vector2(3f, 0f); // 3° por frame hacia la derecha
+            yield return Seconds(0.3f);
+            InputOf(a).LookValue = Vector2.zero;
+            yield return null;
+
+            var view = a.View.transform;
+            Vector3 toOwner = (a.ChestPosition - view.position).normalized;
+            Assert.Greater(a.View.LookOffset.x, 10f, "El mouse debería haber girado la vista");
+            Assert.Less(Vector3.Dot(view.forward, toOwner), 0.9f, "La vista ya no debería apuntar al jugador");
+            Assert.Less(Vector3.Distance(view.position, a.View.Observer.EyePosition), 0.15f, "Mirar alrededor no mueve la cámara de la cabeza");
+
+            yield return Seconds(2f);
+            AssertViewFromObserverHead(a);
+        }
+
+        [UnityTest]
         public IEnumerator Arriba_TeAlejaDeQuienTeMira()
         {
             var a = Bot("A");

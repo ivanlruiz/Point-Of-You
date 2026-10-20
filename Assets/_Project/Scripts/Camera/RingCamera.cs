@@ -7,6 +7,9 @@ namespace PointOfYou
     /// La cámara de un jugador. Vive en la cabeza de OTRO jugador (su "observador") y apunta
     /// siempre al dueño. Solo hereda la posición de esa cabeza, nunca su rotación.
     /// Si el dueño juega solo, cae en una cámara de seguimiento simple para poder probar.
+    ///
+    /// Con el mouse / stick derecho se puede mirar alrededor desde esa cabeza; al soltar,
+    /// la vista vuelve sola a apuntar al dueño.
     /// </summary>
     [RequireComponent(typeof(Camera))]
     public class RingCamera : MonoBehaviour
@@ -16,12 +19,25 @@ namespace PointOfYou
         [SerializeField] Vector3 soloOffset = new(0f, 3.2f, -5.5f);
         [SerializeField] float lookHeightOffset = 0.15f;
 
+        [Header("Mirar alrededor")]
+        [SerializeField] float maxLookYaw = 170f;
+        [SerializeField] float maxLookPitch = 70f;
+        [Tooltip("Segundos sin mover el mouse / stick antes de volver a apuntar al dueño.")]
+        [SerializeField] float recenterDelay = 0.6f;
+        [SerializeField] float recenterSharpness = 5f;
+
         Vector3 velocity;
         PlayerCharacter hiddenObserver;
+        Quaternion aimRotation = Quaternion.identity; // apuntando al dueño, sin el desvío del mouse
+        Vector2 lookOffset;                           // x: grados a la derecha, y: grados hacia arriba
+        float lastLookTime = float.NegativeInfinity;
 
         public PlayerCharacter Owner { get; private set; }
         public PlayerCharacter Observer { get; private set; }
         public Camera Cam { get; private set; }
+        /// <summary>De dónde sale el "mirar alrededor" (solo en la PC donde se juega a este jugador).</summary>
+        public PlayerInputSource LookSource { get; set; }
+        public Vector2 LookOffset => lookOffset;
 
         void Awake() => Cam = GetComponent<Camera>();
 
@@ -61,17 +77,39 @@ namespace PointOfYou
         {
             if (!Owner) return;
             transform.position = Vector3.SmoothDamp(transform.position, DesiredPosition(), ref velocity, positionSmoothTime);
+            UpdateLook();
             Aim(1f - Mathf.Exp(-rotationSharpness * Time.deltaTime));
         }
 
         Vector3 DesiredPosition() => Observer ? Observer.EyePosition : Owner.ChestPosition + soloOffset;
 
+        void UpdateLook()
+        {
+            Vector2 delta = LookSource?.Look ?? Vector2.zero;
+            if (delta.sqrMagnitude > 1e-6f)
+            {
+                lookOffset.x = Mathf.Clamp(lookOffset.x + delta.x, -maxLookYaw, maxLookYaw);
+                lookOffset.y = Mathf.Clamp(lookOffset.y + delta.y, -maxLookPitch, maxLookPitch);
+                lastLookTime = Time.time;
+            }
+            else if (Time.time - lastLookTime > recenterDelay)
+            {
+                lookOffset = Vector2.Lerp(lookOffset, Vector2.zero, 1f - Mathf.Exp(-recenterSharpness * Time.deltaTime));
+            }
+        }
+
         void Aim(float t)
         {
+            // La puntería al dueño se suaviza; el desvío del mouse se aplica directo (si no, se siente "chicloso").
             Vector3 dir = Owner.ChestPosition + Vector3.up * lookHeightOffset - transform.position;
-            if (dir.sqrMagnitude < 1e-4f) return;
-            Vector3 up = Mathf.Abs(Vector3.Dot(dir.normalized, Vector3.up)) > 0.98f ? transform.up : Vector3.up;
-            transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(dir, up), t);
+            if (dir.sqrMagnitude > 1e-4f)
+            {
+                Vector3 up = Mathf.Abs(Vector3.Dot(dir.normalized, Vector3.up)) > 0.98f ? aimRotation * Vector3.up : Vector3.up;
+                aimRotation = Quaternion.Slerp(aimRotation, Quaternion.LookRotation(dir, up), t);
+            }
+            Vector3 aim = aimRotation.eulerAngles;
+            float pitch = Mathf.Clamp(Mathf.DeltaAngle(0f, aim.x) - lookOffset.y, -85f, 85f);
+            transform.rotation = Quaternion.Euler(pitch, aim.y + lookOffset.x, 0f);
         }
 
         // La cámara está dentro de la cabeza del observador: la ocultamos solo para esta cámara

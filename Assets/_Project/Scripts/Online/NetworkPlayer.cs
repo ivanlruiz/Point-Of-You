@@ -72,6 +72,8 @@ namespace PointOfYou
             registered = true;
             var source = IsServer ? new NetworkInputSource(this, IsOwner ? "Esta PC (host)" : "Online") : null;
             GameManager.Instance.Register(character, index.Value, source, localView: IsOwner);
+            // Mirar alrededor es local: lo maneja quien juega en esta PC, no viaja por la red.
+            if (IsOwner && character.View) character.View.LookSource = LocalInputOverride ?? devices;
         }
 
         void Update()

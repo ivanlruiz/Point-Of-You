@@ -30,6 +30,12 @@ namespace PointOfYou
 
         /// <summary>Modo tanque elegido por el propio jugador (null: usar el del GameManager).</summary>
         public virtual bool? TankMode => null;
+
+        /// <summary>Mirar alrededor: grados a girar la vista en este frame (x: derecha, y: arriba).</summary>
+        public virtual Vector2 Look => Vector2.zero;
+
+        public const float MouseDegreesPerPixel = 0.1f;
+        public const float StickDegreesPerSecond = 160f;
     }
 
     public sealed class KeyboardInputSource : PlayerInputSource
@@ -91,6 +97,15 @@ namespace PointOfYou
         public override bool SameDevice(PlayerInputSource other) =>
             other is KeyboardInputSource k && k.KeyboardSide == KeyboardSide;
 
+        /// <summary>
+        /// El mouse es del jugador de WASD (mano izquierda en el teclado, derecha en el mouse).
+        /// Solo cuenta con el cursor capturado, así mover el mouse hacia otra ventana no gira la vista.
+        /// </summary>
+        public override Vector2 Look =>
+            KeyboardSide == Side.Left && Mouse.current != null && Cursor.lockState == CursorLockMode.Locked
+                ? Mouse.current.delta.ReadValue() * MouseDegreesPerPixel
+                : Vector2.zero;
+
         static bool AnyPressedThisFrame(Key[] keys)
         {
             var kb = Keyboard.current;
@@ -137,6 +152,16 @@ namespace PointOfYou
             (Pad.rightTrigger.isPressed || Pad.rightShoulder.isPressed || Pad.buttonWest.isPressed || Pad.leftTrigger.isPressed);
 
         public override bool ResetPressed => IsConnected && Pad.selectButton.wasPressedThisFrame;
+
+        public override Vector2 Look
+        {
+            get
+            {
+                if (!IsConnected) return Vector2.zero;
+                var v = Pad.rightStick.ReadValue();
+                return v.magnitude < Deadzone ? Vector2.zero : v * (StickDegreesPerSecond * Time.deltaTime);
+            }
+        }
 
         public override bool SameDevice(PlayerInputSource other) =>
             other is GamepadInputSource g && g.Pad == Pad;
@@ -193,6 +218,16 @@ namespace PointOfYou
             }
         }
 
+        public override Vector2 Look
+        {
+            get
+            {
+                Vector2 v = left.Look;
+                foreach (var pad in Gamepad.all) v += new GamepadInputSource(pad).Look;
+                return v;
+            }
+        }
+
         public override bool SameDevice(PlayerInputSource other) => ReferenceEquals(this, other);
     }
 
@@ -205,6 +240,8 @@ namespace PointOfYou
         public ScriptedInputSource(string label) => this.label = label;
 
         public Vector2 MoveValue { get; set; }
+        /// <summary>Grados por frame de "mirar alrededor".</summary>
+        public Vector2 LookValue { get; set; }
         public bool Grab { get; set; }
         public void PressJump() => jumpQueued = true;
         public void PressReset() => resetQueued = true;
@@ -213,6 +250,7 @@ namespace PointOfYou
         public override bool IsConnected => true;
         public override Vector2 Move => Vector2.ClampMagnitude(MoveValue, 1f);
         public override bool GrabHeld => Grab;
+        public override Vector2 Look => LookValue;
 
         public override bool JumpPressed
         {
