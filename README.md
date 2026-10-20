@@ -75,6 +75,23 @@ Clic izquierdo pone, clic derecho borra, **PgUp/PgDn** cambia la altura (cada ni
 - **Copiar código**: copia el mapa como texto (`POY1:…`) para pasarlo por chat. El otro lo usa con **Pegar código de mapa** en la pantalla de inicio.
 - **Online**: se juega el mapa elegido por quien crea la partida; a los demás les llega solo.
 
+## Mapas procedurales
+
+En la pantalla de inicio: **Generar mapa procedural**, eligiendo jugadores (2-4), dificultad (1-3) y, si querés, una semilla (vacía = al azar). La misma semilla con la misma configuración da siempre el mismo mapa. El mapa generado se guarda como cualquier otro: se juega local u online y se comparte con su código. En el editor, **Generar** reemplaza el mapa por uno procedural para retocarlo a mano (Ctrl+Z lo deshace).
+
+El diseño y el generador (`Scripts/Maps/MapGenerator.cs`) los hizo **Gemini (Argon)**: encadena salas de 6 tipos, cada una pensada para que haga falta la cámara del otro.
+
+| Sala | Qué hay que hacer |
+|---|---|
+| Esclusa con muro de oclusión | Uno pisa la placa para abrir la puerta; detrás hay un muro, así que el que se queda atrás tiene que ir a una ventana para ver al que cruzó |
+| Foso con galería de ventanas | Uno cruza piedras en zigzag; el otro lo acompaña por una galería y le da vista de costado |
+| Cornisa con pretil | Se sube con la caja a 2 m; desde abajo no se ve arriba, así que el observador sube a un mirador |
+| Puentes paralelos | Dos carriles separados por ventanas; la placa de uno abre la puerta del otro |
+| Laberinto ciego con caja | Solo desde una pasarela alta se puede guiar al que lleva la caja |
+| Balcones y foso central | Los de los balcones abren el paso y guían al que salta en el medio |
+
+Las pruebas `ProcGenTests` verifican el generador: determinismo, 180 combinaciones válidas que se arman sin errores, acceso geométrico a cada puerta y placa, y bots que comprueban que cada placa abre su puerta y que la meta se completa.
+
 ## El nivel
 
 1. **La puerta.** Dos placas amarillas, una de cada lado, abren la puerta mientras alguien las pisa.

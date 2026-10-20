@@ -517,6 +517,8 @@ namespace PointOfYou
         string codeInput = "";
         string addressInput = "127.0.0.1";
         string mapStatus = "";
+        string seedInput = "";
+        int genPlayers = 2, genDifficulty = 2;
 
         void OnGUI()
         {
@@ -738,7 +740,7 @@ namespace PointOfYou
             var online = OnlineSession.Instance;
             bool busy = online && online.Busy;
 
-            GUI.DrawTexture(new Rect(0f, 120f, width, 880f), panelTexture);
+            GUI.DrawTexture(new Rect(0f, 120f, width, 910f), panelTexture);
             GUI.Label(new Rect(0f, 140f, width, 100f), "POINT OF YOU", titleStyle);
             string body =
                 "Prototipo · Cada pantalla te muestra a VOS, desde los ojos de otro jugador.\n" +
@@ -758,33 +760,46 @@ namespace PointOfYou
             if (GUI.Button(new Rect(cx + 150f, 448f, 50f, 48f), ">", buttonStyle)) CycleMap(1);
             if (GUI.Button(new Rect(cx + 215f, 448f, 230f, 48f), "Editor de mapas", buttonStyle) && MapEditor.Instance)
                 MapEditor.Instance.Open(MapRuntime.SelectedMap?.Clone());
+            // Mapas procedurales (generador diseñado por Gemini "Argon"): semilla vacía = al azar.
+            if (GUI.Button(new Rect(cx - 545f, 504f, 300f, 46f), "Generar mapa procedural", buttonStyle)) GenerateMap();
+            GUI.Label(new Rect(cx - 232f, 508f, 120f, 40f), "Jugadores", smallStyle);
+            if (GUI.Button(new Rect(cx - 140f, 504f, 36f, 46f), "<", buttonStyle)) genPlayers = Mathf.Max(2, genPlayers - 1);
+            GUI.Label(new Rect(cx - 100f, 506f, 30f, 40f), $"<b>{genPlayers}</b>", labelStyle);
+            if (GUI.Button(new Rect(cx - 72f, 504f, 36f, 46f), ">", buttonStyle)) genPlayers = Mathf.Min(MaxPlayers, genPlayers + 1);
+            GUI.Label(new Rect(cx - 20f, 508f, 120f, 40f), "Dificultad", smallStyle);
+            if (GUI.Button(new Rect(cx + 70f, 504f, 36f, 46f), "<", buttonStyle)) genDifficulty = Mathf.Max(1, genDifficulty - 1);
+            GUI.Label(new Rect(cx + 110f, 506f, 30f, 40f), $"<b>{genDifficulty}</b>", labelStyle);
+            if (GUI.Button(new Rect(cx + 138f, 504f, 36f, 46f), ">", buttonStyle)) genDifficulty = Mathf.Min(3, genDifficulty + 1);
+            GUI.Label(new Rect(cx + 190f, 508f, 90f, 40f), "Semilla", smallStyle);
+            GUI.SetNextControlName("seed");
+            seedInput = GUI.TextField(new Rect(cx + 265f, 504f, 180f, 46f), seedInput, 9, fieldStyle);
             if (!string.IsNullOrEmpty(mapStatus))
-                GUI.Label(new Rect(60f, 500f, width - 120f, 30f), mapStatus, smallCenterStyle);
+                GUI.Label(new Rect(60f, 556f, width - 120f, 30f), mapStatus, smallCenterStyle);
 
-            GUI.Label(new Rect(0f, 530f, width, 40f), "<b>ONLINE</b> (una persona por PC, desde cualquier casa; se juega el mapa de quien crea la partida)", centerStyle);
+            GUI.Label(new Rect(0f, 590f, width, 40f), "<b>ONLINE</b> (una persona por PC, desde cualquier casa; se juega el mapa de quien crea la partida)", centerStyle);
 
-            if (GUI.Button(new Rect(cx - 300f, 575f, 600f, 56f), "Crear partida online", buttonStyle) && online)
+            if (GUI.Button(new Rect(cx - 300f, 632f, 600f, 56f), "Crear partida online", buttonStyle) && online)
                 online.HostWithCode();
 
-            GUI.Label(new Rect(cx - 300f, 655f, 120f, 50f), "Código:", labelStyle);
+            GUI.Label(new Rect(cx - 300f, 712f, 120f, 50f), "Código:", labelStyle);
             GUI.SetNextControlName("code");
-            codeInput = GUI.TextField(new Rect(cx - 180f, 651f, 260f, 52f), codeInput, 12, fieldStyle).ToUpperInvariant();
-            if (GUI.Button(new Rect(cx + 100f, 651f, 200f, 52f), "Unirse", buttonStyle) && online)
+            codeInput = GUI.TextField(new Rect(cx - 180f, 708f, 260f, 52f), codeInput, 12, fieldStyle).ToUpperInvariant();
+            if (GUI.Button(new Rect(cx + 100f, 708f, 200f, 52f), "Unirse", buttonStyle) && online)
                 online.JoinWithCode(codeInput);
 
-            GUI.Label(new Rect(0f, 735f, width, 34f), "IP directa (misma red o pruebas en esta PC; por internet hay que abrir el puerto 7777):", smallCenterStyle);
+            GUI.Label(new Rect(0f, 785f, width, 34f), "IP directa (misma red o pruebas en esta PC; por internet hay que abrir el puerto 7777):", smallCenterStyle);
             GUI.SetNextControlName("address");
-            addressInput = GUI.TextField(new Rect(cx - 300f, 775f, 260f, 46f), addressInput, 64, fieldStyle);
-            if (GUI.Button(new Rect(cx - 30f, 775f, 160f, 46f), "Hostear", buttonStyle) && online)
+            addressInput = GUI.TextField(new Rect(cx - 300f, 822f, 260f, 46f), addressInput, 64, fieldStyle);
+            if (GUI.Button(new Rect(cx - 30f, 822f, 160f, 46f), "Hostear", buttonStyle) && online)
                 online.HostDirect();
-            if (GUI.Button(new Rect(cx + 140f, 775f, 160f, 46f), "Conectar", buttonStyle) && online)
+            if (GUI.Button(new Rect(cx + 140f, 822f, 160f, 46f), "Conectar", buttonStyle) && online)
                 online.JoinDirect(addressInput);
             GUI.enabled = true;
 
             if (online && !string.IsNullOrEmpty(online.Status))
-                GUI.Label(new Rect(60f, 840f, width - 120f, 100f), online.Status, centerStyle);
+                GUI.Label(new Rect(60f, 880f, width - 120f, 100f), online.Status, centerStyle);
 
-            GUI.Label(new Rect(0f, 950f, width, 40f), "F1 muestra todos los controles.", centerStyle);
+            GUI.Label(new Rect(0f, 985f, width, 40f), "F1 muestra todos los controles.", centerStyle);
 
             UiHasKeyboardFocus = !string.IsNullOrEmpty(GUI.GetNameOfFocusedControl());
             if (showHelp && Event.current.type == EventType.Repaint) DrawHelp(width, height);
@@ -807,6 +822,27 @@ namespace PointOfYou
             catch (Exception e)
             {
                 mapStatus = $"No se pudo abrir \"{names[i]}\": {e.Message}";
+            }
+        }
+
+        /// <summary>Genera un mapa procedural, lo guarda (así se comparte como cualquier otro) y lo elige.</summary>
+        void GenerateMap()
+        {
+            int seed = int.TryParse(seedInput, out int typed) ? typed : UnityEngine.Random.Range(1, 100000);
+            try
+            {
+                var map = MapGenerator.Generate(seed, new GeneratorSettings { players = genPlayers, difficulty = genDifficulty });
+                var problems = MapGenerator.Validate(map);
+                MapLibrary.SaveAsNew(map);
+                if (MapRuntime.Instance) MapRuntime.Instance.Select(map);
+                mapStatus = problems.Count == 0
+                    ? $"Generado \"{map.name}\" (semilla {seed}). Quedó guardado: se juega y se comparte como cualquier mapa."
+                    : $"Generado con avisos (semilla {seed}): {problems[0]}";
+            }
+            catch (Exception e)
+            {
+                mapStatus = $"El generador falló con la semilla {seed}: {e.Message}";
+                Debug.LogException(e);
             }
         }
 

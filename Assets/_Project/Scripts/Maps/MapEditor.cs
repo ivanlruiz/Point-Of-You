@@ -252,6 +252,17 @@ namespace PointOfYou
             status = $"Pegado \"{map.name}\" ({map.pieces.Count} piezas).";
         }
 
+        /// <summary>Reemplaza el mapa por uno procedural (semilla al azar) para retocarlo a mano.</summary>
+        void GenerateIntoEditor()
+        {
+            int seed = Random.Range(1, 100000);
+            PushUndo();
+            map = MapGenerator.Generate(seed, new GeneratorSettings());
+            Rebuild();
+            FrameMap();
+            status = $"Generado con la semilla {seed}. Ctrl+Z vuelve al mapa anterior.";
+        }
+
         void NewMap()
         {
             PushUndo();
@@ -516,6 +527,7 @@ namespace PointOfYou
                 if (GUI.Button(new Rect(x, 10f, 118f, 46f), $"{t.KeyLabel}  {t.Name}", i == toolIndex ? selected : button)) toolIndex = i;
                 x += 124f;
             }
+            if (GUI.Button(new Rect(x + 10f, 10f, 160f, 46f), "Generar", button)) GenerateIntoEditor();
 
             // Fila 2: altura, rotación, canal, nombre y archivo
             x = 10f;
