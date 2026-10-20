@@ -213,6 +213,7 @@ namespace PointOfYou
                 nm.NetworkConfig ??= new NetworkConfig();
                 nm.NetworkConfig.NetworkTransport = transport;
                 nm.NetworkConfig.EnableSceneManagement = false; // todos cargan la misma escena; nada puesto en escena es de red
+                nm.NetworkConfig.TickRate = 60; // por defecto 30: el doble de estados por segundo, menos espera entre envíos
                 nm.NetworkConfig.ConnectionApproval = false;
                 go.SetActive(true);
             }

@@ -698,7 +698,7 @@ namespace PointOfYou
         {
             var online = OnlineSession.Instance;
             string where = online && online.JoinCode != null ? $"código <b>{online.JoinCode}</b>" : "IP directa";
-            string role = Net.IsHost ? "sos el host" : Net.IsConnected ? "conectado" : "conectando…";
+            string role = Net.IsHost ? "sos el host" : !Net.IsConnected ? "conectando…" : Net.RttMs > 0 ? $"ping {Net.RttMs} ms" : "conectado";
             string mapName = MapRuntime.Instance ? MapRuntime.Instance.CurrentName : "Prototipo";
             string text = $"ONLINE · {where} · {role} · mapa {mapName} · {players.Count}/{MaxPlayers} jugadores · F6 salir";
             if (online && !string.IsNullOrEmpty(online.Status)) text += $"\n{online.Status}";

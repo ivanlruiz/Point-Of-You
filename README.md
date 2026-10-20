@@ -41,9 +41,9 @@ En la pantalla de inicio:
 - **Código + Unirse** → entrás a la partida de otro. Funciona desde cualquier casa, sin abrir puertos (Unity Relay).
 - **IP directa** → Hostear / Conectar por IP, para la misma red o pruebas. Por internet habría que abrir el puerto 7777.
 
-Cualquier control de tu PC (teclado o joystick) maneja a tu jugador. **F5** reinicia el nivel (solo el host) y **F6** sale de la partida.
+Cualquier control de tu PC (teclado o joystick) maneja a tu jugador. **F5** reinicia el nivel (solo el host) y **F6** sale de la partida. La barra de arriba muestra tu **ping** con el host.
 
-Cómo funciona: quien crea la partida (host) simula toda la física. Los demás mandan sus controles y la orientación de su cámara, y reciben las posiciones. Por eso el host juega sin demora y los demás ven a su personaje con un pequeño retraso, el de ida y vuelta de la conexión.
+Cómo funciona: quien crea la partida (host) simula toda la física. Los demás mandan sus controles y la orientación de su cámara, y reciben las posiciones. Por eso el host juega sin demora y los demás ven a su personaje con un pequeño retraso: unos 145 ms en la misma red, más el ping. Los controles viajan apenas cambian (sin esperar el tick de red), el estado se manda 60 veces por segundo y, a quien tiene ping alto, el host le da más margen para saltar justo al borde.
 
 Para probar sin otra PC, dentro de Unity: *Window → Multiplayer → Multiplayer Play Mode*. Activás un jugador virtual, que abre otra ventana del juego; en una creás la partida y en la otra te unís con el código.
 
@@ -153,6 +153,6 @@ Con `-pou-code-host <archivo>` / `-pou-code-join <archivo>` hace lo mismo con c�
 ## Próximos pasos
 
 - **Probarlo en serio** con 2, 3 y 4 personas y decidir: ¿controles relativos a la cámara o tipo tanque (F2)? ¿marcador de ayuda sí o no (F3)?
-- **Online:** jugarlo con gente real y medir cuánto molesta el retraso del propio personaje en los clientes. Si molesta, agregar predicción local del movimiento. Después: reconexión, migración de host, pantalla dividida + online combinados.
+- **Online:** jugarlo con gente real y ver cuánto molesta el retraso del propio personaje en los clientes (~145 ms + ping). Si molesta, el paso siguiente es que cada cliente simule su propio personaje. Después: reconexión, migración de host, pantalla dividida + online combinados.
 - **Sensación Gang Beasts:** ragdoll activo, brazos que agarran de verdad, colgarse de cornisas.
 - Estética, narrativa y mapas.

@@ -64,6 +64,8 @@ namespace PointOfYou
         /// (en los clientes es una copia que mueve la red).
         /// </summary>
         public bool Simulate { get; set; } = true;
+        /// <summary>Margen extra para saltar después de dejar el piso (online, según la demora del dueño).</summary>
+        public float ExtraCoyoteTime { get; set; }
 
         public int Index { get; private set; }
         public Color Color { get; private set; } = Color.white;
@@ -159,7 +161,7 @@ namespace PointOfYou
             }
 
             // Salto con buffer y coyote time.
-            if (Time.time <= jumpBufferedUntil && Time.time - lastGroundedTime <= coyoteTime)
+            if (Time.time <= jumpBufferedUntil && Time.time - lastGroundedTime <= coyoteTime + ExtraCoyoteTime)
             {
                 float jumpSpeed = Mathf.Sqrt(2f * -Physics.gravity.y * jumpHeight);
                 rb.AddForce(Vector3.up * (jumpSpeed - rb.linearVelocity.y), ForceMode.VelocityChange);

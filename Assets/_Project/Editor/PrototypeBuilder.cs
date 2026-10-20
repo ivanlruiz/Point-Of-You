@@ -275,7 +275,8 @@ namespace PointOfYou.EditorTools
                 nt.SyncRotAngleX = false;
                 nt.SyncRotAngleZ = false;
                 nt.SyncScaleX = nt.SyncScaleY = nt.SyncScaleZ = false;
-                root.AddComponent<NetworkRigidbody>();
+                ConfigureLowLatency(nt);
+                root.AddComponent<NetworkRigidbody>().UseRigidBodyForMotion = true;
                 root.AddComponent<NetworkPlayer>();
             }
 
@@ -301,8 +302,20 @@ namespace PointOfYou.EditorTools
             box.AddComponent<NetworkObject>();
             var nt = box.AddComponent<NetworkTransform>();
             nt.SyncScaleX = nt.SyncScaleY = nt.SyncScaleZ = false;
-            box.AddComponent<NetworkRigidbody>();
+            ConfigureLowLatency(nt);
+            box.AddComponent<NetworkRigidbody>().UseRigidBodyForMotion = true;
             SavePrefab(box, NetworkBoxPrefabPath, networked: true);
+        }
+
+        /// <summary>
+        /// Menos demora visible en los clientes: los cambios viajan sin garantía de entrega (llegan antes; el siguiente
+        /// corrige al perdido) y el suavizado final de la interpolación baja de 0,1 s a 0,04 s.
+        /// </summary>
+        static void ConfigureLowLatency(NetworkTransform nt)
+        {
+            nt.UseUnreliableDeltas = true;
+            nt.PositionMaxInterpolationTime = 0.04f;
+            nt.RotationMaxInterpolationTime = 0.04f;
         }
 
         static void BuildLevelStatePrefab()

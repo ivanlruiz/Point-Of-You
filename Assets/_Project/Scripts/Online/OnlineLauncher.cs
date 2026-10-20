@@ -30,6 +30,12 @@ namespace PointOfYou
         float captureAt = -1f, quitAt = -1f, nextReport, localStart = -1f;
         bool started, captured, joiningByCode;
 
+        // Medición de latencia: desde que el bot empieza a moverse hasta que su personaje se mueve EN ESTA PC.
+        float moveStartedAt = -1f;
+        Vector3 moveStartPosition;
+        readonly List<float> inputToMotionMs = new();
+        float nextRttLog;
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Boot()
         {
@@ -75,7 +81,7 @@ namespace PointOfYou
         static float ParseFloat(string s, float fallback) =>
             float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : fallback;
 
-        static void Log(string msg) => Debug.Log($"[Launcher] {msg}");
+        static void Log(string msg) => Debug.Log($"[Launcher] t={Time.realtimeSinceStartup:F2} {msg}");
 
         void Update()
         {
@@ -143,6 +149,12 @@ namespace PointOfYou
                 Log($"jugador local {local.DisplayName} listo");
             }
             if (localStart >= 0f) RunBot(local, Time.time - localStart);
+            MeasureInputToMotion(local);
+            if (Net.IsReplica && Time.realtimeSinceStartup >= nextRttLog)
+            {
+                nextRttLog = Time.realtimeSinceStartup + 2f;
+                Log($"rtt={CurrentRttMs()} ms");
+            }
 
             if (capturePath != null && !captured && localStart >= 0f && Time.time - localStart >= captureAt && local && local.View)
             {
@@ -158,6 +170,12 @@ namespace PointOfYou
 
             if (quitAt > 0f && Time.realtimeSinceStartup >= quitAt)
             {
+                if (inputToMotionMs.Count > 0)
+                {
+                    var sorted = inputToMotionMs.OrderBy(x => x).ToList();
+                    Log($"RESUMEN entrada->movimiento: {sorted.Count} muestras, mediana {sorted[sorted.Count / 2]:F0} ms, " +
+                        $"min {sorted[0]:F0}, max {sorted[^1]:F0}");
+                }
                 Log("fin");
                 quitAt = -1f;
                 if (online && Net.IsOnline) Unity.Netcode.NetworkManager.Singleton.Shutdown();
@@ -181,10 +199,10 @@ namespace PointOfYou
                 Log($"bot t={t:F1}: {action}");
                 switch (action)
                 {
-                    case "up": bot.MoveValue = Vector2.up; break;
-                    case "down": bot.MoveValue = Vector2.down; break;
-                    case "left": bot.MoveValue = Vector2.left; break;
-                    case "right": bot.MoveValue = Vector2.right; break;
+                    case "up": StartMove(local, Vector2.up); break;
+                    case "down": StartMove(local, Vector2.down); break;
+                    case "left": StartMove(local, Vector2.left); break;
+                    case "right": StartMove(local, Vector2.right); break;
                     case "stop": bot.MoveValue = Vector2.zero; break;
                     case "jump": bot.PressJump(); break;
                     case "grab": bot.Grab = true; break;
@@ -200,6 +218,30 @@ namespace PointOfYou
             }
         }
 
+        void StartMove(PlayerCharacter local, Vector2 move)
+        {
+            if (bot.MoveValue == Vector2.zero && local)
+            {
+                moveStartedAt = Time.realtimeSinceStartup;
+                moveStartPosition = local.transform.position;
+            }
+            bot.MoveValue = move;
+        }
+
+        void MeasureInputToMotion(PlayerCharacter local)
+        {
+            if (moveStartedAt < 0f || !local) return;
+            var delta = local.transform.position - moveStartPosition;
+            delta.y = 0f;
+            if (delta.magnitude < 0.05f) return;
+            float ms = (Time.realtimeSinceStartup - moveStartedAt) * 1000f;
+            moveStartedAt = -1f;
+            inputToMotionMs.Add(ms);
+            Log($"entrada->movimiento={ms:F0} ms (rtt={CurrentRttMs()} ms)");
+        }
+
+        static int CurrentRttMs() => Net.RttMs;
+
         static string V(Vector3 v) => string.Format(CultureInfo.InvariantCulture, "[{0:F3},{1:F3},{2:F3}]", v.x, v.y, v.z);
         static string F(float f) => f.ToString("F3", CultureInfo.InvariantCulture);
         static string B(bool b) => b ? "true" : "false";
@@ -210,6 +252,7 @@ namespace PointOfYou
             var sb = new StringBuilder("{");
             sb.Append($"\"t\":{F(Time.realtimeSinceStartup)},");
             sb.Append($"\"role\":\"{(Net.IsHost ? "host" : Net.IsReplica ? "client" : "offline")}\",");
+            sb.Append($"\"rtt\":{CurrentRttMs()},");
             sb.Append($"\"map\":\"{(MapRuntime.Instance ? MapRuntime.Instance.CurrentName : "?")}\",");
             if (gm)
             {
