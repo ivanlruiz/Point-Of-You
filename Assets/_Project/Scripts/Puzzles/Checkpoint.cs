@@ -43,11 +43,7 @@ namespace PointOfYou
             if (!gm || Net.IsReplica) return;
             var bounds = area.bounds;
             foreach (var p in gm.Players)
-            {
-                if (!bounds.Contains(p.transform.position)) continue;
-                gm.ReachCheckpoint(this);
-                return;
-            }
+                if (bounds.Contains(p.transform.position)) gm.ReachCheckpoint(this, p);
         }
 
         public void GetSpawn(int index, out Vector3 position, out Quaternion rotation)

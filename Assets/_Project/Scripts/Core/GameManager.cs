@@ -19,7 +19,11 @@ namespace PointOfYou
     public class GameManager : MonoBehaviour
     {
         public const int MaxPlayers = 4;
-        public enum ControlMode { CameraRelative, Tank }
+        /// <summary>
+        /// CameraMemory: relativo a la cámara, pero mientras mantenés una dirección el eje queda fijo (no te curva
+        /// el movimiento cuando la cámara gira). CameraRelative: sigue a la cámara cuadro a cuadro. Tank: como un tanque.
+        /// </summary>
+        public enum ControlMode { CameraMemory, CameraRelative, Tank }
         /// <summary>Estado del editor de mapas: editando (sin jugadores ni HUD) o probando el mapa.</summary>
         public enum EditorMode { Off, Editing, Testing }
 
@@ -40,15 +44,23 @@ namespace PointOfYou
 
         // Sobreviven a F5 (recargar escena) para no tener que volver a sumarse.
         static readonly List<PlayerInputSource> rememberedInputs = new();
-        static ControlMode controls = ControlMode.CameraRelative;
+        static ControlMode controls = ControlMode.CameraMemory;
         static bool assistMarkers;
         static bool ringReversed;
         static bool showHelp;
         static bool cursorReleased;
 
         readonly List<PlayerCharacter> players = new();
+        // Cada jugador reaparece en el último checkpoint que tocó ÉL (si fuera del equipo, R serviría para saltear puzzles).
+        readonly Dictionary<PlayerCharacter, Checkpoint> playerCheckpoints = new();
+        readonly Dictionary<PlayerCharacter, float> disconnectedSince = new();
+        readonly Dictionary<string, float> joinHold = new();
+        const float JoinHoldSeconds = 0.8f;
         Checkpoint[] checkpoints;
-        Checkpoint checkpoint;
+        Checkpoint checkpoint; // el más avanzado del equipo: define el objetivo que muestra el HUD
+        bool paused;
+        string toast = "";
+        float toastUntil;
         float startTime = -1f;
         float completeElapsed = -1f;
 
@@ -72,7 +84,7 @@ namespace PointOfYou
         {
             Instance = null;
             rememberedInputs.Clear();
-            controls = ControlMode.CameraRelative;
+            controls = ControlMode.CameraMemory;
             assistMarkers = false;
             ringReversed = false;
             showHelp = false;
@@ -112,25 +124,76 @@ namespace PointOfYou
             UpdateCursor();
             foreach (var p in players)
                 if (p.Simulate && p.transform.position.y < killHeight) Respawn(p);
+            if (!Net.IsOnline) RemoveDisconnectedPlayers();
+        }
+
+        /// <summary>Un joystick desconectado deja una estatua que traba la meta: después de un momento se lo saca.</summary>
+        void RemoveDisconnectedPlayers()
+        {
+            foreach (var p in players.ToArray())
+            {
+                if (p.InputSource == null || p.InputSource.IsConnected)
+                {
+                    disconnectedSince.Remove(p);
+                    continue;
+                }
+                if (!disconnectedSince.TryGetValue(p, out float since)) disconnectedSince[p] = Time.unscaledTime;
+                else if (Time.unscaledTime - since > 1.5f)
+                {
+                    ShowToast($"{p.DisplayName} se desconectó y salió de la partida.");
+                    RemoveLocalPlayer(p);
+                }
+            }
         }
 
         // ---------------------------------------------------------------- jugadores
 
+        /// <summary>
+        /// En la pantalla de inicio alcanza con apretar. Con el nivel en marcha hay que MANTENER el botón un momento:
+        /// un A suelto no puede sumar a alguien y reacomodar el anillo de todos.
+        /// </summary>
         void HandleJoining()
         {
-            if (players.Count >= MaxPlayers) return;
-
-            if (KeyboardInputSource.JoinPressed(KeyboardInputSource.Side.Left))
-                TryJoin(new KeyboardInputSource(KeyboardInputSource.Side.Left));
-            if (KeyboardInputSource.JoinPressed(KeyboardInputSource.Side.Right))
-                TryJoin(new KeyboardInputSource(KeyboardInputSource.Side.Right));
-
+            if (players.Count >= MaxPlayers || paused) return;
+            bool instant = players.Count == 0;
+            var kb = Keyboard.current;
+            if (kb != null)
+            {
+                JoinGesture("teclado-izq", kb.spaceKey.wasPressedThisFrame, kb.spaceKey.isPressed, instant,
+                    () => new KeyboardInputSource(KeyboardInputSource.Side.Left));
+                bool enterDown = kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame;
+                bool enterHeld = kb.enterKey.isPressed || kb.numpadEnterKey.isPressed;
+                JoinGesture("teclado-der", enterDown, enterHeld, instant, () => new KeyboardInputSource(KeyboardInputSource.Side.Right));
+            }
             foreach (var pad in Gamepad.all)
             {
                 if (players.Count >= MaxPlayers) break;
-                if (pad.buttonSouth.wasPressedThisFrame || pad.startButton.wasPressedThisFrame)
-                    TryJoin(new GamepadInputSource(pad));
+                var device = pad;
+                JoinGesture($"pad-{pad.deviceId}", pad.buttonSouth.wasPressedThisFrame || pad.startButton.wasPressedThisFrame,
+                    pad.buttonSouth.isPressed || pad.startButton.isPressed, instant, () => new GamepadInputSource(device));
             }
+        }
+
+        void JoinGesture(string key, bool pressedThisFrame, bool held, bool instant, Func<PlayerInputSource> create)
+        {
+            if (instant)
+            {
+                if (pressedThisFrame) TryJoin(create());
+                return;
+            }
+            if (!held)
+            {
+                joinHold.Remove(key);
+                return;
+            }
+            if (!joinHold.TryGetValue(key, out float since))
+            {
+                joinHold[key] = Time.unscaledTime;
+                return;
+            }
+            if (Time.unscaledTime - since < JoinHoldSeconds) return;
+            joinHold[key] = float.PositiveInfinity; // no volver a disparar hasta soltar
+            TryJoin(create());
         }
 
         void TryJoin(PlayerInputSource candidate)
@@ -165,6 +228,7 @@ namespace PointOfYou
             player.name = $"J{index + 1}";
             player.Initialize(index, playerColors[index % playerColors.Length], source, localView ? CreateView(index) : null);
             if (player.View) player.View.LookSource = source;
+            if (checkpoint) playerCheckpoints[player] = checkpoint; // el que entra a mitad de nivel arranca donde va el equipo
             players.Add(player);
             players.Sort((a, b) => a.Index.CompareTo(b.Index));
             RefreshRing();
@@ -174,11 +238,29 @@ namespace PointOfYou
         public void Unregister(PlayerCharacter player)
         {
             if (!players.Remove(player)) return;
-            foreach (var p in players)
-                if (p.GrabbedBody && p.GrabbedBody == player.Body) p.Release();
+            playerCheckpoints.Remove(player);
+            disconnectedSince.Remove(player);
+            ReleaseGrabsOn(player.Body);
             if (player.View) Destroy(player.View.gameObject);
             RefreshRing();
             RefreshLayout();
+        }
+
+        /// <summary>Saca a un jugador local (menú de pausa o joystick desconectado).</summary>
+        public void RemoveLocalPlayer(PlayerCharacter player)
+        {
+            if (Net.IsOnline || !players.Contains(player)) return;
+            rememberedInputs.RemoveAll(r => player.InputSource != null && r.SameDevice(player.InputSource));
+            Unregister(player);
+            Destroy(player.gameObject);
+        }
+
+        /// <summary>Suelta cualquier agarre sobre ese cuerpo (si no, el SpringJoint del otro lo sigue hasta el respawn).</summary>
+        public void ReleaseGrabsOn(Rigidbody body)
+        {
+            if (!body) return;
+            foreach (var p in players)
+                if (p.GrabbedBody == body) p.Release(requireButtonRelease: true);
         }
 
         public int NextFreeIndex()
@@ -253,23 +335,36 @@ namespace PointOfYou
 
         public void Respawn(PlayerCharacter player)
         {
-            GetSpawn(player.Index, out var position, out var rotation);
+            GetSpawn(player.Index, CheckpointOf(player), out var position, out var rotation);
+            ReleaseGrabsOn(player.Body);
             player.Respawn(position, rotation);
+            // Corte en vez de vuelo: la cámara del que reaparece y la que vive en su cabeza saltan directo.
+            foreach (var p in players)
+                if (p.View && (p == player || p.View.Observer == player)) p.View.Snap();
         }
 
-        public void GetSpawn(int index, out Vector3 position, out Quaternion rotation)
+        public Checkpoint CheckpointOf(PlayerCharacter player) =>
+            playerCheckpoints.TryGetValue(player, out var cp) && cp ? cp : startCheckpoint;
+
+        /// <summary>Dónde aparece alguien que entra ahora: donde va el equipo.</summary>
+        public void GetSpawn(int index, out Vector3 position, out Quaternion rotation) =>
+            GetSpawn(index, checkpoint, out position, out rotation);
+
+        static void GetSpawn(int index, Checkpoint at, out Vector3 position, out Quaternion rotation)
         {
-            if (checkpoint)
+            if (at)
             {
-                checkpoint.GetSpawn(index, out position, out rotation);
+                at.GetSpawn(index, out position, out rotation);
                 return;
             }
             position = new Vector3(index * 1.5f, 1f, 0f);
             rotation = Quaternion.identity;
         }
 
-        public void ReachCheckpoint(Checkpoint cp)
+        public void ReachCheckpoint(Checkpoint cp, PlayerCharacter player)
         {
+            var current = CheckpointOf(player);
+            if (!current || cp.Order > current.Order) playerCheckpoints[player] = cp;
             if (!checkpoint || cp.Order > checkpoint.Order) checkpoint = cp;
         }
 
@@ -282,6 +377,7 @@ namespace PointOfYou
         public void ResetLevel()
         {
             checkpoint = startCheckpoint;
+            playerCheckpoints.Clear();
             completeElapsed = -1f;
             startTime = Time.time;
             foreach (var p in players)
@@ -294,6 +390,7 @@ namespace PointOfYou
             startCheckpoint = start;
             checkpoints = FindObjectsByType<Checkpoint>(FindObjectsSortMode.None).OrderBy(c => c.Order).ToArray();
             checkpoint = start;
+            playerCheckpoints.Clear();
             completeElapsed = -1f;
             startTime = players.Count > 0 ? Time.time : -1f;
             FrameOverview(levelBounds);
@@ -319,7 +416,10 @@ namespace PointOfYou
                 Destroy(p.gameObject);
             }
             players.Clear();
+            playerCheckpoints.Clear();
+            disconnectedSince.Clear();
             rememberedInputs.Clear();
+            paused = false;
             completeElapsed = -1f;
             startTime = -1f;
             RefreshLayout();
@@ -339,34 +439,58 @@ namespace PointOfYou
             if (kb == null || UiHasKeyboardFocus || Editor == EditorMode.Editing) return;
             if (kb.f1Key.wasPressedThisFrame) showHelp = !showHelp;
             if (kb.f2Key.wasPressedThisFrame)
-                controls = controls == ControlMode.CameraRelative ? ControlMode.Tank : ControlMode.CameraRelative;
+                controls = (ControlMode)(((int)controls + 1) % 3);
             if (kb.f3Key.wasPressedThisFrame) assistMarkers = !assistMarkers;
             if (kb.f4Key.wasPressedThisFrame)
             {
-                ringReversed = !ringReversed;
-                RefreshRing();
+                if (Net.IsOnline)
+                {
+                    ShowToast("F4 (invertir el anillo) solo funciona jugando en una PC.");
+                }
+                else
+                {
+                    ringReversed = !ringReversed;
+                    RefreshRing();
+                }
             }
             if (kb.f5Key.wasPressedThisFrame) Restart();
             if (kb.f6Key.wasPressedThisFrame && Net.IsOnline && OnlineSession.Instance) OnlineSession.Instance.Leave();
         }
 
         /// <summary>
-        /// Durante el juego el mouse queda capturado para "mirar alrededor".
-        /// Esc lo suelta (para usar otra ventana); un clic lo vuelve a capturar.
+        /// Durante el juego el mouse queda capturado para "mirar alrededor". Esc abre la pausa (y suelta el mouse);
+        /// fuera de la pausa, un clic lo vuelve a capturar.
         /// </summary>
         void UpdateCursor()
         {
             var kb = Keyboard.current;
             var mouse = Mouse.current;
-            if (kb != null && kb.escapeKey.wasPressedThisFrame) cursorReleased = true;
             bool playing = players.Count > 0 && Editor != EditorMode.Editing;
-            if (mouse != null && mouse.leftButton.wasPressedThisFrame && playing) cursorReleased = false;
+            if (kb != null && kb.escapeKey.wasPressedThisFrame && !UiHasKeyboardFocus)
+            {
+                if (playing) SetPaused(!paused);
+                else cursorReleased = true;
+            }
+            if (!playing) paused = false;
+            if (mouse != null && mouse.leftButton.wasPressedThisFrame && playing && !paused) cursorReleased = false;
 
-            bool capture = playing && !cursorReleased && Application.isFocused;
+            bool capture = playing && !paused && !cursorReleased && Application.isFocused;
             var mode = capture ? CursorLockMode.Locked : CursorLockMode.None;
             if (Cursor.lockState == mode) return;
             Cursor.lockState = mode;
             Cursor.visible = !capture;
+        }
+
+        void SetPaused(bool value)
+        {
+            paused = value;
+            cursorReleased = value;
+        }
+
+        void ShowToast(string message, float seconds = 4f)
+        {
+            toast = message;
+            toastUntil = Time.unscaledTime + seconds;
         }
 
         void Restart()
@@ -414,8 +538,12 @@ namespace PointOfYou
                 return;
             }
             UiHasKeyboardFocus = false;
-            if (Event.current.type != EventType.Repaint) return;
+            if (Event.current.type == EventType.Repaint) DrawHud(width, height, scale);
+            if (paused) DrawPause(width, height);
+        }
 
+        void DrawHud(float width, float height, float scale)
+        {
             foreach (var p in players)
             {
                 if (!p.View) continue;
@@ -439,6 +567,54 @@ namespace PointOfYou
 
             if (LevelComplete) DrawComplete(width, height);
             if (showHelp) DrawHelp(width, height);
+            if (Time.unscaledTime < toastUntil && !string.IsNullOrEmpty(toast))
+            {
+                Vector2 size = labelStyle.CalcSize(new GUIContent(toast));
+                DrawPanelText(new Vector2((width - size.x) * 0.5f - 10f, height * 0.22f), toast, labelStyle);
+            }
+        }
+
+        void DrawPause(float width, float height)
+        {
+            var local = Net.IsOnline ? new List<PlayerCharacter>() : players.Where(p => p.View).ToList();
+            float h = 330f + local.Count * 58f;
+            var r = new Rect((width - 520f) * 0.5f, (height - h) * 0.5f, 520f, h);
+            GUI.DrawTexture(r, panelTexture);
+            GUI.DrawTexture(r, panelTexture);
+            GUI.Label(new Rect(r.x, r.y + 18f, r.width, 60f), "<b>PAUSA</b>", centerStyle);
+            float y = r.y + 80f;
+            float x = r.x + 40f, w = r.width - 80f;
+
+            if (GUI.Button(new Rect(x, y, w, 50f), "Seguir (Esc)", buttonStyle)) SetPaused(false);
+            y += 58f;
+            if (Editor == EditorMode.Testing)
+            {
+                if (GUI.Button(new Rect(x, y, w, 50f), "Volver al editor (F10)", buttonStyle) && MapEditor.Instance)
+                    MapEditor.Instance.StopTest();
+            }
+            else if (Net.IsOnline)
+            {
+                if (GUI.Button(new Rect(x, y, w, 50f), "Salir de la partida online (F6)", buttonStyle) && OnlineSession.Instance)
+                    OnlineSession.Instance.Leave();
+            }
+            else if (GUI.Button(new Rect(x, y, w, 50f), "Volver al inicio", buttonStyle))
+            {
+                ClearLocalPlayers();
+                var scene = SceneManager.GetActiveScene();
+                if (scene.buildIndex >= 0) SceneManager.LoadScene(scene.buildIndex);
+            }
+            y += 58f;
+
+            foreach (var p in local)
+            {
+                string label = $"Sacar a {p.DisplayName} ({p.InputSource?.Label ?? "?"})";
+                if (GUI.Button(new Rect(x, y, w, 50f), label, buttonStyle)) RemoveLocalPlayer(p);
+                y += 58f;
+            }
+
+            if (GUI.Button(new Rect(x, y, w, 50f), "Salir del juego", buttonStyle)) Application.Quit();
+            y += 66f;
+            GUI.Label(new Rect(r.x, y, r.width, 40f), "Para sumar a alguien: mantené ESPACIO · ENTER · A", smallCenterStyle);
         }
 
         void EnsureStyles()
@@ -520,7 +696,7 @@ namespace PointOfYou
         {
             var online = OnlineSession.Instance;
             string where = online && online.JoinCode != null ? $"código <b>{online.JoinCode}</b>" : "IP directa";
-            string role = Net.IsHost ? "sos el host" : "conectado";
+            string role = Net.IsHost ? "sos el host" : Net.IsConnected ? "conectado" : "conectando…";
             string mapName = MapRuntime.Instance ? MapRuntime.Instance.CurrentName : "Prototipo";
             string text = $"ONLINE · {where} · {role} · mapa {mapName} · {players.Count}/{MaxPlayers} jugadores · F6 salir";
             if (online && !string.IsNullOrEmpty(online.Status)) text += $"\n{online.Status}";
@@ -544,10 +720,15 @@ namespace PointOfYou
                 GUI.Label(new Rect(rect.x + 15f, rect.y + 7f, w - 30f, h), objective, centerStyle);
             }
 
-            string join = !Net.IsOnline && players.Count < MaxPlayers ? "Sumarse: ESPACIO · ENTER · A (joystick)    " : "";
+            string join = !Net.IsOnline && players.Count < MaxPlayers ? "Sumarse: mantené ESPACIO · ENTER · A    " : "";
             if (Editor == EditorMode.Testing) join = "PROBANDO MAPA · F10 volver al editor    " + join;
-            string mode = controls == ControlMode.CameraRelative ? "relativos a la cámara" : "tanque";
-            string status = $"{join}F1 ayuda · F2 controles: {mode} · F3 marcador: {(assistMarkers ? "sí" : "no")} · F4 anillo · F5 reiniciar";
+            string mode = controls switch
+            {
+                ControlMode.CameraMemory => "cámara con memoria",
+                ControlMode.CameraRelative => "cámara",
+                _ => "tanque",
+            };
+            string status = $"{join}Esc pausa · F1 ayuda · F2 controles: {mode} · F3 marcador: {(assistMarkers ? "sí" : "no")} · F4 anillo · F5 reiniciar";
             Vector2 size = smallStyle.CalcSize(new GUIContent(status));
             DrawPanelText(new Vector2((width - size.x) * 0.5f - 10f, height - 44f), status, smallStyle);
         }

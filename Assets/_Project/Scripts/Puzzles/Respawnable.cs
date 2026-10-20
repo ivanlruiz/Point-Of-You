@@ -26,11 +26,15 @@ namespace PointOfYou
 
         public void ResetToStart()
         {
+            if (GameManager.Instance) GameManager.Instance.ReleaseGrabsOn(rb);
             rb.position = startPosition;
             rb.rotation = startRotation;
             transform.SetPositionAndRotation(startPosition, startRotation);
             rb.linearVelocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
+            // Online: que los clientes la vean aparecer, no volar desde el abismo.
+            var nt = GetComponent<Unity.Netcode.Components.NetworkTransform>();
+            if (nt && nt.IsSpawned && nt.IsServer) nt.Teleport(startPosition, startRotation, transform.localScale);
         }
     }
 }

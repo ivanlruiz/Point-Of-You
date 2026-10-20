@@ -31,7 +31,8 @@ namespace PointOfYou
             new() { Type = PieceType.Block, Name = "Bloque", Key = Key.Digit4, KeyLabel = "4", Paint = true, Color = new Color(0.56f, 0.58f, 0.62f) },
             new() { Type = PieceType.Stone, Name = "Piedra", Key = Key.Digit5, KeyLabel = "5", Paint = true, Color = new Color(0.36f, 0.5f, 0.64f) },
             new() { Type = PieceType.Plate, Name = "Placa", Key = Key.Digit6, KeyLabel = "6", W = 2, D = 2, Channel = true },
-            new() { Type = PieceType.Door, Name = "Puerta", Key = Key.Digit7, KeyLabel = "7", W = 3, D = 1, Rotates = true, Channel = true },
+            // De 1 celda: en un vano ancho alguien la traba con el cuerpo y otro pasa al costado.
+            new() { Type = PieceType.Door, Name = "Puerta", Key = Key.Digit7, KeyLabel = "7", W = 1, D = 1, Rotates = true, Channel = true },
             new() { Type = PieceType.Box, Name = "Caja", Key = Key.Digit8, KeyLabel = "8", Color = new Color(0.62f, 0.43f, 0.25f) },
             new() { Type = PieceType.Start, Name = "Inicio", Key = Key.Digit9, KeyLabel = "9", W = 3, D = 3, Color = new Color(0.35f, 0.75f, 1f) },
             new() { Type = PieceType.Checkpoint, Name = "Checkpoint", Key = Key.Digit0, KeyLabel = "0", W = 3, D = 3, Color = new Color(0.3f, 0.95f, 0.85f) },

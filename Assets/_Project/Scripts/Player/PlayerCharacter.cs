@@ -54,6 +54,8 @@ namespace PointOfYou
         float jumpLockedUntil;
         bool remoteGrabbing;
         Vector3 remoteGrabPoint;
+        bool regrabLocked; // después de perder un agarre hay que soltar el botón antes de volver a agarrar
+        readonly DirectionMemory directionMemory = new();
         readonly RaycastHit[] groundHits = new RaycastHit[8];
         readonly Collider[] grabOverlap = new Collider[16];
 
@@ -124,7 +126,8 @@ namespace PointOfYou
                 GameManager.Instance.Respawn(this);
 
             bool grabHeld = InputSource.GrabHeld;
-            if (grabHeld && !IsGrabbing) TryGrab();
+            if (!grabHeld) regrabLocked = false;
+            if (grabHeld && !IsGrabbing && !regrabLocked) TryGrab();
             else if (!grabHeld && IsGrabbing) Release();
         }
 
@@ -204,24 +207,31 @@ namespace PointOfYou
         {
             tankYaw = 0f;
             Vector2 m = InputSource != null ? InputSource.Move : Vector2.zero;
-            if (m.sqrMagnitude < 0.0001f) return Vector3.zero;
 
             if (IsTankMode)
             {
+                directionMemory.Reset();
                 tankYaw = m.x;
                 return transform.forward * m.y;
             }
 
             Vector3 fwd = Vector3.forward, right = Vector3.right;
-            if (InputSource.TryGetMoveForward(out var sentForward))
+            if (InputSource != null && InputSource.TryGetMoveForward(out var sentForward))
             {
+                // Online: el cliente ya aplicó la memoria de dirección antes de mandar su "adelante".
                 fwd = sentForward;
                 right = Vector3.Cross(Vector3.up, fwd);
             }
             else if (View)
             {
                 View.GetPlanarBasis(out fwd, out right);
+                if (GameManager.Instance && GameManager.Instance.Controls == GameManager.ControlMode.CameraMemory)
+                {
+                    fwd = directionMemory.Apply(fwd, m, Time.time);
+                    right = Vector3.Cross(Vector3.up, fwd);
+                }
             }
+            if (m.sqrMagnitude < 0.0001f) return Vector3.zero;
             return Vector3.ClampMagnitude(fwd * m.y + right * m.x, 1f);
         }
 
@@ -281,8 +291,9 @@ namespace PointOfYou
             grabJoint.enableCollision = false;
         }
 
-        public void Release()
+        public void Release(bool requireButtonRelease = false)
         {
+            if (requireButtonRelease && IsGrabbing) regrabLocked = true;
             if (grabJoint) Destroy(grabJoint);
             grabJoint = null;
             grabbedBody = null;
@@ -290,19 +301,24 @@ namespace PointOfYou
 
         void OnJointBreak(float breakForce)
         {
+            regrabLocked = true;
             grabJoint = null;
             grabbedBody = null;
         }
 
         public void Respawn(Vector3 position, Quaternion rotation)
         {
-            Release();
+            Release(requireButtonRelease: true);
             rb.position = position;
             rb.rotation = rotation;
             transform.SetPositionAndRotation(position, rotation);
             rb.linearVelocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
             jumpBufferedUntil = float.NegativeInfinity;
+            directionMemory.Reset();
+            // Online: Teleport hace que los clientes lo vean aparecer en vez de interpolar un vuelo.
+            var nt = GetComponent<Unity.Netcode.Components.NetworkTransform>();
+            if (nt && nt.IsSpawned && nt.IsServer) nt.Teleport(position, rotation, transform.localScale);
         }
 
         void OnDrawGizmosSelected()

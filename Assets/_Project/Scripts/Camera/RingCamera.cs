@@ -15,7 +15,13 @@ namespace PointOfYou
     public class RingCamera : MonoBehaviour
     {
         [SerializeField] float positionSmoothTime = 0.03f;
+        [Tooltip("Más lento que el horizontal: los saltos del observador no sacuden la pantalla del otro.")]
+        [SerializeField] float verticalSmoothTime = 0.2f;
         [SerializeField] float rotationSharpness = 16f;
+        [Tooltip("Tope de giro (°/s): sin esto, pasar pegado al observador da latigazos de cámara.")]
+        [SerializeField] float maxTurnSpeed = 240f;
+        [Tooltip("Si la cabeza del observador salta más que esto (reaparecer, cambio de anillo), la cámara corta en vez de volar.")]
+        [SerializeField] float snapDistance = 3f;
         [SerializeField] Vector3 soloOffset = new(0f, 3.2f, -5.5f);
         [SerializeField] float lookHeightOffset = 0.15f;
 
@@ -27,6 +33,7 @@ namespace PointOfYou
         [SerializeField] float recenterSharpness = 5f;
 
         Vector3 velocity;
+        float verticalVelocity;
         PlayerCharacter hiddenObserver;
         Quaternion aimRotation = Quaternion.identity; // apuntando al dueño, sin el desvío del mouse
         Vector2 lookOffset;                           // x: grados a la derecha, y: grados hacia arriba
@@ -57,12 +64,25 @@ namespace PointOfYou
         public void Init(PlayerCharacter owner)
         {
             Owner = owner;
-            transform.position = DesiredPosition();
-            velocity = Vector3.zero;
-            Aim(1f);
+            Snap();
         }
 
-        public void SetObserver(PlayerCharacter observer) => Observer = observer;
+        public void SetObserver(PlayerCharacter observer)
+        {
+            if (observer == Observer) return;
+            Observer = observer;
+            if (Owner) Snap();
+        }
+
+        /// <summary>Corte de cámara: va directo a la cabeza del observador apuntando al dueño, sin viajar.</summary>
+        public void Snap()
+        {
+            if (!Owner) return;
+            transform.position = DesiredPosition();
+            velocity = Vector3.zero;
+            verticalVelocity = 0f;
+            Aim(1f, capTurn: false);
+        }
 
         /// <summary>Ejes de movimiento en el plano del piso, según hacia dónde mira esta cámara.</summary>
         public void GetPlanarBasis(out Vector3 forward, out Vector3 right)
@@ -76,7 +96,19 @@ namespace PointOfYou
         void LateUpdate()
         {
             if (!Owner) return;
-            transform.position = Vector3.SmoothDamp(transform.position, DesiredPosition(), ref velocity, positionSmoothTime);
+            Vector3 desired = DesiredPosition();
+            Vector3 position = transform.position;
+            if ((desired - position).sqrMagnitude > snapDistance * snapDistance)
+            {
+                // También cubre a los clientes online, que no saben cuándo alguien reapareció.
+                UpdateLook();
+                Snap();
+                return;
+            }
+            var horizontal = Vector3.SmoothDamp(new Vector3(position.x, 0f, position.z), new Vector3(desired.x, 0f, desired.z),
+                ref velocity, positionSmoothTime);
+            float y = Mathf.SmoothDamp(position.y, desired.y, ref verticalVelocity, verticalSmoothTime);
+            transform.position = new Vector3(horizontal.x, y, horizontal.z);
             UpdateLook();
             Aim(1f - Mathf.Exp(-rotationSharpness * Time.deltaTime));
         }
@@ -98,14 +130,15 @@ namespace PointOfYou
             }
         }
 
-        void Aim(float t)
+        void Aim(float t, bool capTurn = true)
         {
-            // La puntería al dueño se suaviza; el desvío del mouse se aplica directo (si no, se siente "chicloso").
+            // La puntería al dueño se suaviza (con tope de velocidad); el desvío del mouse se aplica directo.
             Vector3 dir = Owner.ChestPosition + Vector3.up * lookHeightOffset - transform.position;
             if (dir.sqrMagnitude > 1e-4f)
             {
                 Vector3 up = Mathf.Abs(Vector3.Dot(dir.normalized, Vector3.up)) > 0.98f ? aimRotation * Vector3.up : Vector3.up;
-                aimRotation = Quaternion.Slerp(aimRotation, Quaternion.LookRotation(dir, up), t);
+                var smoothed = Quaternion.Slerp(aimRotation, Quaternion.LookRotation(dir, up), t);
+                aimRotation = capTurn ? Quaternion.RotateTowards(aimRotation, smoothed, maxTurnSpeed * Time.deltaTime) : smoothed;
             }
             Vector3 aim = aimRotation.eulerAngles;
             float pitch = Mathf.Clamp(Mathf.DeltaAngle(0f, aim.x) - lookOffset.y, -85f, 85f);

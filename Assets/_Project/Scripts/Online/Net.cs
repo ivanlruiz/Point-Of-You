@@ -11,5 +11,7 @@ namespace PointOfYou
         public static bool IsOnline => NetworkManager.Singleton && NetworkManager.Singleton.IsListening;
         public static bool IsReplica => IsOnline && !NetworkManager.Singleton.IsServer;
         public static bool IsHost => IsOnline && NetworkManager.Singleton.IsServer;
+        /// <summary>Online y ya adentro (el cliente puede estar "escuchando" pero todavía conectándose).</summary>
+        public static bool IsConnected => IsOnline && (NetworkManager.Singleton.IsServer || NetworkManager.Singleton.IsConnectedClient);
     }
 }

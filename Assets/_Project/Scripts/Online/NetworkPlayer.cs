@@ -36,6 +36,7 @@ namespace PointOfYou
         int pendingIndex = -1;
         bool registered;
         byte jumpCount, resetCount;
+        readonly DirectionMemory directionMemory = new();
 
         public PlayerCharacter Character => character;
         public NetInput CurrentInput => input.Value;
@@ -107,6 +108,8 @@ namespace PointOfYou
             if (character.View)
             {
                 character.View.GetPlanarBasis(out var forward, out _);
+                if (gm && gm.Controls == GameManager.ControlMode.CameraMemory)
+                    forward = directionMemory.Apply(forward, typing ? Vector2.zero : source.Move, Time.time);
                 yaw = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
             }
 

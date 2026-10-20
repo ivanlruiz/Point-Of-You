@@ -204,6 +204,12 @@ namespace PointOfYou
                 var transport = go.AddComponent<UnityTransport>();
                 // El mapa del host viaja comprimido al conectarse; el límite por defecto (6 KB) no alcanza para mapas grandes.
                 transport.MaxPayloadSize = 128 * 1024;
+                // Por defecto son 60 intentos de 1 s y 30 s para dar una conexión por caída: demasiado para una IP mal escrita.
+                transport.MaxConnectAttempts = 10;
+                transport.ConnectTimeoutMS = 1000;
+                transport.DisconnectTimeoutMS = 8000;
+                // Netcode ya lo activa al encenderse; explícito para que Alt+Tab nunca congele la partida.
+                Application.runInBackground = true;
                 nm.NetworkConfig ??= new NetworkConfig();
                 nm.NetworkConfig.NetworkTransport = transport;
                 nm.NetworkConfig.EnableSceneManagement = false; // todos cargan la misma escena; nada puesto en escena es de red

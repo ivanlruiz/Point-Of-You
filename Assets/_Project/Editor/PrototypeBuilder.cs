@@ -125,12 +125,13 @@ namespace PointOfYou.EditorTools
         static PressurePlate BuildDoorOne(Transform level, Materials m, PressurePlate plateA)
         {
             var zone = Group("Puerta 1", level);
-            Block("Pared izq", zone, new Vector3(-6.5f, 0f, 12f), new Vector3(-1.25f, 4f, 12.5f), m.Wall);
-            Block("Pared der", zone, new Vector3(1.25f, 0f, 12f), new Vector3(6.5f, 4f, 12.5f), m.Wall);
-            Block("Dintel", zone, new Vector3(-1.25f, 2.6f, 12f), new Vector3(1.25f, 4f, 12.5f), m.Wall);
+            // Vano de 1,2 m: entra un solo personaje, así nadie traba la puerta con el cuerpo y pasa otro al costado.
+            Block("Pared izq", zone, new Vector3(-6.5f, 0f, 12f), new Vector3(-0.6f, 4f, 12.5f), m.Wall);
+            Block("Pared der", zone, new Vector3(0.6f, 0f, 12f), new Vector3(6.5f, 4f, 12.5f), m.Wall);
+            Block("Dintel", zone, new Vector3(-0.6f, 2.6f, 12f), new Vector3(0.6f, 4f, 12.5f), m.Wall);
 
             var plateB = Plate("Placa B", zone, new Vector3(3.5f, 0f, 14.2f), m.PlateOne, DoorOneColor);
-            MakeDoor("Puerta 1", zone, new Vector3(-1.25f, 0f, 12.1f), new Vector3(1.25f, 2.6f, 12.4f), m.DoorOne,
+            MakeDoor("Puerta 1", zone, new Vector3(-0.6f, 0f, 12.1f), new Vector3(0.6f, 2.6f, 12.4f), m.DoorOne,
                 new[] { plateA, plateB }, new Vector3(0f, -2.65f, 0f));
             return plateB;
         }
